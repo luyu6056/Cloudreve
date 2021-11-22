@@ -2,7 +2,6 @@ package onedrive
 
 import (
 	"errors"
-	"github.com/cloudreve/Cloudreve/v3/pkg/cluster"
 
 	model "github.com/cloudreve/Cloudreve/v3/models"
 	"github.com/cloudreve/Cloudreve/v3/pkg/request"
@@ -29,8 +28,7 @@ type Client struct {
 	ClientSecret string
 	Redirect     string
 
-	Request           request.Client
-	ClusterController cluster.Controller
+	Request request.Client
 }
 
 // Endpoints OneDrive客户端相关设置
@@ -53,12 +51,11 @@ func NewClient(policy *model.Policy) (*Client, error) {
 		Credential: &Credential{
 			RefreshToken: policy.AccessKey,
 		},
-		Policy:            policy,
-		ClientID:          policy.BucketName,
-		ClientSecret:      policy.SecretKey,
-		Redirect:          policy.OptionsSerialized.OdRedirect,
-		Request:           request.NewClient(),
-		ClusterController: cluster.DefaultController,
+		Policy:       policy,
+		ClientID:     policy.BucketName,
+		ClientSecret: policy.SecretKey,
+		Redirect:     policy.OptionsSerialized.OdRedirect,
+		Request:      request.NewClient(),
 	}
 
 	if client.Endpoints.DriverResource == "" {

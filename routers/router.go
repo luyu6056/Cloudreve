@@ -1,10 +1,13 @@
 package routers
 
 import (
+	"io/ioutil"
+
 	"github.com/cloudreve/Cloudreve/v3/middleware"
 	"github.com/cloudreve/Cloudreve/v3/pkg/auth"
 	"github.com/cloudreve/Cloudreve/v3/pkg/cluster"
 	"github.com/cloudreve/Cloudreve/v3/pkg/conf"
+	"github.com/cloudreve/Cloudreve/v3/pkg/filesystem"
 	"github.com/cloudreve/Cloudreve/v3/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v3/pkg/util"
 	"github.com/cloudreve/Cloudreve/v3/routers/controllers"
@@ -15,8 +18,12 @@ import (
 
 // InitRouter 初始化路由
 func InitRouter() *gin.Engine {
+	if !conf.SystemConfig.Debug {
+		gin.DefaultWriter = ioutil.Discard
+	}
 	if conf.SystemConfig.Mode == "master" {
 		util.Log().Info("当前运行模式：Master")
+		filesystem.Check()
 		return InitMasterRouter()
 	}
 	util.Log().Info("当前运行模式：Slave")
@@ -26,6 +33,7 @@ func InitRouter() *gin.Engine {
 
 // InitSlaveRouter 初始化从机模式路由
 func InitSlaveRouter() *gin.Engine {
+
 	r := gin.Default()
 	// 跨域相关
 	InitCORS(r)
@@ -51,6 +59,7 @@ func InitSlaveRouter() *gin.Engine {
 		v3.GET("download/:speed/:path/:name", controllers.SlaveDownload)
 		// 预览 / 外链
 		v3.GET("source/:speed/:path/:name", controllers.SlavePreview)
+		v3.GET("check/:speed/:path/:name", controllers.SlaveCheck)
 		// 缩略图
 		v3.GET("thumb/:path", controllers.SlaveThumb)
 		// 删除文件

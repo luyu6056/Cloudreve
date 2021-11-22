@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
+	"strings"
 
 	model "github.com/cloudreve/Cloudreve/v3/models"
 	"github.com/cloudreve/Cloudreve/v3/pkg/auth"
@@ -37,7 +39,6 @@ func SignRequired(authInstance auth.Auth) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-
 		c.Next()
 	}
 }
@@ -107,6 +108,21 @@ func WebDAVAuth() gin.HandlerFunc {
 		// 用户组已启用WebDAV？
 		if !expectedUser.Group.WebDAVEnabled {
 			c.Status(http.StatusForbidden)
+			c.Abort()
+			return
+		}
+
+		//是否只读 2021-8-17 15:13:46添加
+		url, _ := url.QueryUnescape(c.Request.URL.String())
+		if strings.Contains(url, "/dav/提交/") {
+			//禁止删除“提交”文件夹
+			if url == "/dav/提交/" && c.Request.Method == "DELETE" {
+				c.Status(http.StatusUnauthorized)
+				c.Abort()
+				return
+			}
+		} else if webdav.Name == "只读" && (c.Request.Method == "PUT" || c.Request.Method == "DELETE") {
+			c.Status(http.StatusUnauthorized)
 			c.Abort()
 			return
 		}

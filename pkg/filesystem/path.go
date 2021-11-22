@@ -73,3 +73,24 @@ func (fs *FileSystem) IsChildFileExist(folder *model.Folder, name string) (bool,
 	file, err := folder.GetChildFile(name)
 	return err == nil, file
 }
+func (fs *FileSystem) IsFileExistFolder(fullPath string) (ok bool, file *model.File, folder *model.Folder) {
+	basePath := path.Dir(fullPath)
+	fileName := path.Base(fullPath)
+
+	// 获得父目录
+	exist, parent := fs.IsPathExist(basePath)
+	if !exist {
+		return false, nil, nil
+	}
+	//根目录
+	if basePath == fullPath {
+		return true, nil, parent
+	}
+	//尝试目录
+	folder, err := parent.GetChild(fileName)
+	if err == nil {
+		return true, nil, folder
+	}
+	file, err = parent.GetChildFile(fileName)
+	return err == nil, file, nil
+}

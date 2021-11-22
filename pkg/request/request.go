@@ -51,7 +51,7 @@ func NewClient(opts ...Option) Client {
 }
 
 // Request 发送HTTP请求
-func (c HTTPClient) Request(method, target string, body io.Reader, opts ...Option) *Response {
+func (c *HTTPClient) Request(method, target string, body io.Reader, opts ...Option) *Response {
 	// 应用额外设置
 	c.mu.Lock()
 	options := *c.options
@@ -60,7 +60,6 @@ func (c HTTPClient) Request(method, target string, body io.Reader, opts ...Optio
 		o.apply(&options)
 	}
 
-	// 创建请求客户端
 	client := &http.Client{Timeout: options.timeout}
 
 	// size为0时将body设为nil
@@ -125,10 +124,12 @@ func (c HTTPClient) Request(method, target string, body io.Reader, opts ...Optio
 	// 发送请求
 	resp, err := client.Do(req)
 	if err != nil {
+
 		return &Response{Err: err}
 	}
 
 	return &Response{Err: nil, Response: resp}
+
 }
 
 // GetResponse 检查响应并获取响应正文

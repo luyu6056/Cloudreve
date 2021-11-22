@@ -1,438 +1,326 @@
 package monitor
 
 import (
-	"database/sql"
 	"errors"
+	"testing"
+	"time"
+
 	"github.com/DATA-DOG/go-sqlmock"
 	model "github.com/cloudreve/Cloudreve/v3/models"
+	"github.com/cloudreve/Cloudreve/v3/pkg/aria2"
 	"github.com/cloudreve/Cloudreve/v3/pkg/aria2/common"
 	"github.com/cloudreve/Cloudreve/v3/pkg/aria2/rpc"
+	"github.com/cloudreve/Cloudreve/v3/pkg/cache"
 	"github.com/cloudreve/Cloudreve/v3/pkg/filesystem"
-	"github.com/cloudreve/Cloudreve/v3/pkg/mocks"
-	"github.com/cloudreve/Cloudreve/v3/pkg/mq"
+	"github.com/cloudreve/Cloudreve/v3/pkg/task"
+	"github.com/cloudreve/Cloudreve/v3/pkg/util"
 	"github.com/jinzhu/gorm"
 	"github.com/stretchr/testify/assert"
 	testMock "github.com/stretchr/testify/mock"
-	"testing"
 )
 
-var mock sqlmock.Sqlmock
+type InstanceMock struct {
+	testMock.Mock
+}
 
-// TestMain 初始化数据库Mock
-func TestMain(m *testing.M) {
-	var db *sql.DB
-	var err error
-	db, mock, err = sqlmock.New()
-	if err != nil {
-		panic("An error was not expected when opening a stub database connection")
-	}
-	model.DB, _ = gorm.Open("mysql", db)
-	defer db.Close()
-	m.Run()
+func (m InstanceMock) CreateTask(task *model.Download, options map[string]interface{}) error {
+	args := m.Called(task, options)
+	return args.Error(0)
+}
+
+func (m InstanceMock) Status(task *model.Download) (rpc.StatusInfo, error) {
+	args := m.Called(task)
+	return args.Get(0).(rpc.StatusInfo), args.Error(1)
+}
+
+func (m InstanceMock) Cancel(task *model.Download) error {
+	args := m.Called(task)
+	return args.Error(0)
+}
+
+func (m InstanceMock) Select(task *model.Download, files []int) error {
+	args := m.Called(task, files)
+	return args.Error(0)
 }
 
 func TestNewMonitor(t *testing.T) {
-	a := assert.New(t)
-	mockMQ := mq.NewMQ()
-
-	// node not available
-	{
-		mockPool := &mocks.NodePoolMock{}
-		mockPool.On("GetNodeByID", uint(1)).Return(nil)
-		mock.ExpectBegin()
-		mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
-		mock.ExpectCommit()
-
-		task := &model.Download{
-			Model: gorm.Model{ID: 1},
-		}
-		NewMonitor(task, mockPool, mockMQ)
-		mockPool.AssertExpectations(t)
-		a.NoError(mock.ExpectationsWereMet())
-		a.NotEmpty(task.Error)
-	}
-
-	// success
-	{
-		mockNode := &mocks.NodeMock{}
-		mockNode.On("GetAria2Instance").Return(&common.DummyAria2{})
-		mockPool := &mocks.NodePoolMock{}
-		mockPool.On("GetNodeByID", uint(1)).Return(mockNode)
-
-		task := &model.Download{
-			Model: gorm.Model{ID: 1},
-		}
-		NewMonitor(task, mockPool, mockMQ)
-		mockNode.AssertExpectations(t)
-		mockPool.AssertExpectations(t)
-	}
-
+	asserts := assert.New(t)
+	NewMonitor(&model.Download{GID: "gid"})
+	_, ok := common.EventNotifier.Subscribes.Load("gid")
+	asserts.True(ok)
 }
 
 func TestMonitor_Loop(t *testing.T) {
-	a := assert.New(t)
-	mockMQ := mq.NewMQ()
-	mockNode := &mocks.NodeMock{}
-	mockNode.On("GetAria2Instance").Return(&common.DummyAria2{})
-	m := &Monitor{
-		retried:  MAX_RETRY,
-		node:     mockNode,
-		Task:     &model.Download{Model: gorm.Model{ID: 1}},
-		notifier: mockMQ.Subscribe("test", 1),
+	asserts := assert.New(t)
+	notifier := make(chan common.StatusEvent)
+	MAX_RETRY = 0
+	monitor := &Monitor{
+		Task:     &model.Download{GID: "gid"},
+		Interval: time.Duration(1) * time.Second,
+		notifier: notifier,
 	}
-
-	// into interval loop
-	{
-		mock.ExpectBegin()
-		mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
-		mock.ExpectCommit()
-		m.Loop(mockMQ)
-		a.NoError(mock.ExpectationsWereMet())
-		a.NotEmpty(m.Task.Error)
-	}
-
-	// into notifier loop
-	{
-		m.Task.Error = ""
-		mockMQ.Publish("test", mq.Message{})
-		mock.ExpectBegin()
-		mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
-		mock.ExpectCommit()
-		m.Loop(mockMQ)
-		a.NoError(mock.ExpectationsWereMet())
-		a.NotEmpty(m.Task.Error)
-	}
+	asserts.NotPanics(func() {
+		monitor.Loop()
+	})
 }
 
-func TestMonitor_UpdateFailedAfterRetry(t *testing.T) {
-	a := assert.New(t)
-	mockNode := &mocks.NodeMock{}
-	mockNode.On("GetAria2Instance").Return(&common.DummyAria2{})
-	m := &Monitor{
-		node: mockNode,
-		Task: &model.Download{Model: gorm.Model{ID: 1}},
-	}
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-
-	for i := 0; i < MAX_RETRY; i++ {
-		a.False(m.Update())
-	}
-
-	mockNode.AssertExpectations(t)
-	a.True(m.Update())
-	a.NoError(mock.ExpectationsWereMet())
-	a.NotEmpty(m.Task.Error)
-}
-
-func TestMonitor_UpdateMagentoFollow(t *testing.T) {
-	a := assert.New(t)
-	mockAria2 := &mocks.Aria2Mock{}
-	mockAria2.On("Status", testMock.Anything).Return(rpc.StatusInfo{
-		FollowedBy: []string{"next"},
-	}, nil)
-	mockNode := &mocks.NodeMock{}
-	mockNode.On("GetAria2Instance").Return(mockAria2)
-	m := &Monitor{
-		node: mockNode,
-		Task: &model.Download{Model: gorm.Model{ID: 1}},
-	}
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-
-	a.False(m.Update())
-	a.NoError(mock.ExpectationsWereMet())
-	a.Equal("next", m.Task.GID)
-	mockAria2.AssertExpectations(t)
-}
-
-func TestMonitor_UpdateFailedToUpdateInfo(t *testing.T) {
-	a := assert.New(t)
-	mockAria2 := &mocks.Aria2Mock{}
-	mockAria2.On("Status", testMock.Anything).Return(rpc.StatusInfo{}, nil)
-	mockAria2.On("DeleteTempFile", testMock.Anything).Return(nil)
-	mockNode := &mocks.NodeMock{}
-	mockNode.On("GetAria2Instance").Return(mockAria2)
-	m := &Monitor{
-		node: mockNode,
-		Task: &model.Download{Model: gorm.Model{ID: 1}},
-	}
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE(.+)").WillReturnError(errors.New("error"))
-	mock.ExpectRollback()
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-
-	a.True(m.Update())
-	a.NoError(mock.ExpectationsWereMet())
-	mockAria2.AssertExpectations(t)
-	mockNode.AssertExpectations(t)
-	a.NotEmpty(m.Task.Error)
-}
-
-func TestMonitor_UpdateCompleted(t *testing.T) {
-	a := assert.New(t)
-	mockAria2 := &mocks.Aria2Mock{}
-	mockAria2.On("Status", testMock.Anything).Return(rpc.StatusInfo{
-		Status: "complete",
-	}, nil)
-	mockAria2.On("DeleteTempFile", testMock.Anything).Return(nil)
-	mockNode := &mocks.NodeMock{}
-	mockNode.On("GetAria2Instance").Return(mockAria2)
-	mockNode.On("ID").Return(uint(1))
-	m := &Monitor{
-		node: mockNode,
-		Task: &model.Download{Model: gorm.Model{ID: 1}},
-	}
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-	mock.ExpectQuery("SELECT(.+)users(.+)").WillReturnError(errors.New("error"))
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-
-	a.True(m.Update())
-	a.NoError(mock.ExpectationsWereMet())
-	mockAria2.AssertExpectations(t)
-	mockNode.AssertExpectations(t)
-	a.NotEmpty(m.Task.Error)
-}
-
-func TestMonitor_UpdateError(t *testing.T) {
-	a := assert.New(t)
-	mockAria2 := &mocks.Aria2Mock{}
-	mockAria2.On("Status", testMock.Anything).Return(rpc.StatusInfo{
-		Status:       "error",
-		ErrorMessage: "error",
-	}, nil)
-	mockAria2.On("DeleteTempFile", testMock.Anything).Return(nil)
-	mockNode := &mocks.NodeMock{}
-	mockNode.On("GetAria2Instance").Return(mockAria2)
-	m := &Monitor{
-		node: mockNode,
-		Task: &model.Download{Model: gorm.Model{ID: 1}},
-	}
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-
-	a.True(m.Update())
-	a.NoError(mock.ExpectationsWereMet())
-	mockAria2.AssertExpectations(t)
-	mockNode.AssertExpectations(t)
-	a.NotEmpty(m.Task.Error)
-}
-
-func TestMonitor_UpdateActive(t *testing.T) {
-	a := assert.New(t)
-	mockAria2 := &mocks.Aria2Mock{}
-	mockAria2.On("Status", testMock.Anything).Return(rpc.StatusInfo{
-		Status: "active",
-	}, nil)
-	mockNode := &mocks.NodeMock{}
-	mockNode.On("GetAria2Instance").Return(mockAria2)
-	m := &Monitor{
-		node: mockNode,
-		Task: &model.Download{Model: gorm.Model{ID: 1}},
-	}
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-
-	a.False(m.Update())
-	a.NoError(mock.ExpectationsWereMet())
-	mockAria2.AssertExpectations(t)
-	mockNode.AssertExpectations(t)
-}
-
-func TestMonitor_UpdateRemoved(t *testing.T) {
-	a := assert.New(t)
-	mockAria2 := &mocks.Aria2Mock{}
-	mockAria2.On("Status", testMock.Anything).Return(rpc.StatusInfo{
-		Status: "removed",
-	}, nil)
-	mockAria2.On("DeleteTempFile", testMock.Anything).Return(nil)
-	mockNode := &mocks.NodeMock{}
-	mockNode.On("GetAria2Instance").Return(mockAria2)
-	m := &Monitor{
-		node: mockNode,
-		Task: &model.Download{Model: gorm.Model{ID: 1}},
-	}
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-
-	a.True(m.Update())
-	a.Equal(common.Canceled, m.Task.Status)
-	a.NoError(mock.ExpectationsWereMet())
-	mockAria2.AssertExpectations(t)
-	mockNode.AssertExpectations(t)
-}
-
-func TestMonitor_UpdateUnknown(t *testing.T) {
-	a := assert.New(t)
-	mockAria2 := &mocks.Aria2Mock{}
-	mockAria2.On("Status", testMock.Anything).Return(rpc.StatusInfo{
-		Status: "unknown",
-	}, nil)
-	mockNode := &mocks.NodeMock{}
-	mockNode.On("GetAria2Instance").Return(mockAria2)
-	m := &Monitor{
-		node: mockNode,
-		Task: &model.Download{Model: gorm.Model{ID: 1}},
-	}
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-
-	a.True(m.Update())
-	a.NoError(mock.ExpectationsWereMet())
-	mockAria2.AssertExpectations(t)
-	mockNode.AssertExpectations(t)
-}
-
-func TestMonitor_UpdateTaskInfoValidateFailed(t *testing.T) {
-	a := assert.New(t)
-	status := rpc.StatusInfo{
-		Status:          "completed",
-		TotalLength:     "100",
-		CompletedLength: "50",
-		DownloadSpeed:   "20",
-	}
-	mockNode := &mocks.NodeMock{}
-	mockNode.On("GetAria2Instance").Return(&common.DummyAria2{})
-	m := &Monitor{
-		node: mockNode,
-		Task: &model.Download{Model: gorm.Model{ID: 1}},
-	}
-
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-
-	err := m.UpdateTaskInfo(status)
-	a.Error(err)
-	a.NoError(mock.ExpectationsWereMet())
-	mockNode.AssertExpectations(t)
-}
-
-func TestMonitor_ValidateFile(t *testing.T) {
-	a := assert.New(t)
-	m := &Monitor{
+func TestMonitor_Update(t *testing.T) {
+	asserts := assert.New(t)
+	monitor := &Monitor{
 		Task: &model.Download{
-			Model:     gorm.Model{ID: 1},
-			TotalSize: 100,
+			GID:    "gid",
+			Parent: "TestMonitor_Update",
+		},
+		Interval: time.Duration(1) * time.Second,
+	}
+
+	// 无法获取状态
+	{
+		MAX_RETRY = 1
+		testInstance := new(InstanceMock)
+		testInstance.On("SlaveStatus", testMock.Anything).Return(rpc.StatusInfo{}, errors.New("error"))
+		file, _ := util.CreatNestedFile("TestMonitor_Update/1")
+		file.Close()
+		aria2.Instance = testInstance
+		asserts.False(monitor.Update())
+		asserts.True(monitor.Update())
+		testInstance.AssertExpectations(t)
+		asserts.False(util.Exists("TestMonitor_Update"))
+	}
+
+	// 磁力链下载重定向
+	{
+		testInstance := new(InstanceMock)
+		testInstance.On("SlaveStatus", testMock.Anything).Return(rpc.StatusInfo{
+			FollowedBy: []string{"1"},
+		}, nil)
+		monitor.Task.ID = 1
+		aria2.mock.ExpectBegin()
+		aria2.mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
+		aria2.mock.ExpectCommit()
+		aria2.Instance = testInstance
+		asserts.False(monitor.Update())
+		asserts.NoError(aria2.mock.ExpectationsWereMet())
+		testInstance.AssertExpectations(t)
+		asserts.EqualValues("1", monitor.Task.GID)
+	}
+
+	// 无法更新任务信息
+	{
+		testInstance := new(InstanceMock)
+		testInstance.On("SlaveStatus", testMock.Anything).Return(rpc.StatusInfo{}, nil)
+		monitor.Task.ID = 1
+		aria2.mock.ExpectBegin()
+		aria2.mock.ExpectExec("UPDATE(.+)").WillReturnError(errors.New("error"))
+		aria2.mock.ExpectRollback()
+		aria2.Instance = testInstance
+		asserts.True(monitor.Update())
+		asserts.NoError(aria2.mock.ExpectationsWereMet())
+		testInstance.AssertExpectations(t)
+	}
+
+	// 返回未知状态
+	{
+		testInstance := new(InstanceMock)
+		testInstance.On("SlaveStatus", testMock.Anything).Return(rpc.StatusInfo{Status: "?"}, nil)
+		aria2.mock.ExpectBegin()
+		aria2.mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
+		aria2.mock.ExpectCommit()
+		aria2.Instance = testInstance
+		asserts.True(monitor.Update())
+		asserts.NoError(aria2.mock.ExpectationsWereMet())
+		testInstance.AssertExpectations(t)
+	}
+
+	// 返回被取消状态
+	{
+		testInstance := new(InstanceMock)
+		testInstance.On("SlaveStatus", testMock.Anything).Return(rpc.StatusInfo{Status: "removed"}, nil)
+		aria2.mock.ExpectBegin()
+		aria2.mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
+		aria2.mock.ExpectCommit()
+		aria2.mock.ExpectBegin()
+		aria2.mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
+		aria2.mock.ExpectCommit()
+		aria2.Instance = testInstance
+		asserts.True(monitor.Update())
+		asserts.NoError(aria2.mock.ExpectationsWereMet())
+		testInstance.AssertExpectations(t)
+	}
+
+	// 返回活跃状态
+	{
+		testInstance := new(InstanceMock)
+		testInstance.On("SlaveStatus", testMock.Anything).Return(rpc.StatusInfo{Status: "active"}, nil)
+		aria2.mock.ExpectBegin()
+		aria2.mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
+		aria2.mock.ExpectCommit()
+		aria2.Instance = testInstance
+		asserts.False(monitor.Update())
+		asserts.NoError(aria2.mock.ExpectationsWereMet())
+		testInstance.AssertExpectations(t)
+	}
+
+	// 返回错误状态
+	{
+		testInstance := new(InstanceMock)
+		testInstance.On("SlaveStatus", testMock.Anything).Return(rpc.StatusInfo{Status: "error"}, nil)
+		aria2.mock.ExpectBegin()
+		aria2.mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
+		aria2.mock.ExpectCommit()
+		aria2.Instance = testInstance
+		asserts.True(monitor.Update())
+		asserts.NoError(aria2.mock.ExpectationsWereMet())
+		testInstance.AssertExpectations(t)
+	}
+
+	// 返回完成
+	{
+		testInstance := new(InstanceMock)
+		testInstance.On("SlaveStatus", testMock.Anything).Return(rpc.StatusInfo{Status: "complete"}, nil)
+		aria2.mock.ExpectBegin()
+		aria2.mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
+		aria2.mock.ExpectCommit()
+		aria2.Instance = testInstance
+		asserts.True(monitor.Update())
+		asserts.NoError(aria2.mock.ExpectationsWereMet())
+		testInstance.AssertExpectations(t)
+	}
+}
+
+func TestMonitor_UpdateTaskInfo(t *testing.T) {
+	asserts := assert.New(t)
+	monitor := &Monitor{
+		Task: &model.Download{
+			Model:  gorm.Model{ID: 1},
+			GID:    "gid",
+			Parent: "TestMonitor_UpdateTaskInfo",
 		},
 	}
 
-	// failed to create filesystem
+	// 失败
 	{
-		m.Task.User = &model.User{
-			Policy: model.Policy{
-				Type: "random",
-			},
-		}
-		a.Equal(filesystem.ErrUnknownPolicyType, m.ValidateFile())
+		aria2.mock.ExpectBegin()
+		aria2.mock.ExpectExec("UPDATE(.+)").WillReturnError(errors.New("error"))
+		aria2.mock.ExpectRollback()
+		err := monitor.UpdateTaskInfo(rpc.StatusInfo{})
+		asserts.NoError(aria2.mock.ExpectationsWereMet())
+		asserts.Error(err)
 	}
 
-	// User capacity not enough
+	// 更新成功，无需校验
 	{
-		m.Task.User = &model.User{
+		aria2.mock.ExpectBegin()
+		aria2.mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
+		aria2.mock.ExpectCommit()
+		err := monitor.UpdateTaskInfo(rpc.StatusInfo{})
+		asserts.NoError(aria2.mock.ExpectationsWereMet())
+		asserts.NoError(err)
+	}
+
+	// 更新成功，大小改变，需要校验，校验失败
+	{
+		testInstance := new(InstanceMock)
+		testInstance.On("SlaveCancel", testMock.Anything).Return(nil)
+		aria2.Instance = testInstance
+		aria2.mock.ExpectBegin()
+		aria2.mock.ExpectExec("UPDATE(.+)").WillReturnResult(sqlmock.NewResult(1, 1))
+		aria2.mock.ExpectCommit()
+		err := monitor.UpdateTaskInfo(rpc.StatusInfo{TotalLength: "1"})
+		asserts.NoError(aria2.mock.ExpectationsWereMet())
+		asserts.Error(err)
+		testInstance.AssertExpectations(t)
+	}
+}
+
+func TestMonitor_ValidateFile(t *testing.T) {
+	asserts := assert.New(t)
+	monitor := &Monitor{
+		Task: &model.Download{
+			Model:  gorm.Model{ID: 1},
+			GID:    "gid",
+			Parent: "TestMonitor_ValidateFile",
+		},
+	}
+
+	// 无法创建文件系统
+	{
+		monitor.Task.User = &model.User{
+			Policy: model.Policy{
+				Type: "unknown",
+			},
+		}
+		asserts.Error(monitor.ValidateFile())
+	}
+
+	// 文件大小超出容量配额
+	{
+		cache.Set("pack_size_0", uint64(0), 0)
+		monitor.Task.TotalSize = 11
+		monitor.Task.User = &model.User{
+			Policy: model.Policy{
+				Type: "mock",
+			},
 			Group: model.Group{
-				MaxStorage: 99,
-			},
-			Policy: model.Policy{
-				Type: "local",
+				MaxStorage: 10,
 			},
 		}
-		a.Equal(filesystem.ErrInsufficientCapacity, m.ValidateFile())
+		asserts.Equal(filesystem.ErrInsufficientCapacity, monitor.ValidateFile())
 	}
 
-	// single file too big
+	// 单文件大小超出容量配额
 	{
-		m.Task.StatusInfo.Files = []rpc.FileInfo{
+		cache.Set("pack_size_0", uint64(0), 0)
+		monitor.Task.TotalSize = 10
+		monitor.Task.StatusInfo.Files = []rpc.FileInfo{
 			{
-				Length:   "100",
 				Selected: "true",
+				Length:   "6",
 			},
 		}
-		m.Task.User = &model.User{
-			Group: model.Group{
-				MaxStorage: 100,
-			},
+		monitor.Task.User = &model.User{
 			Policy: model.Policy{
-				Type:    "local",
-				MaxSize: 99,
+				Type:    "mock",
+				MaxSize: 5,
 			},
-		}
-		a.Equal(filesystem.ErrFileSizeTooBig, m.ValidateFile())
-	}
-
-	// all pass
-	{
-		m.Task.StatusInfo.Files = []rpc.FileInfo{
-			{
-				Length:   "100",
-				Selected: "true",
-			},
-		}
-		m.Task.User = &model.User{
 			Group: model.Group{
-				MaxStorage: 100,
-			},
-			Policy: model.Policy{
-				Type:    "local",
-				MaxSize: 100,
+				MaxStorage: 10,
 			},
 		}
-		a.NoError(m.ValidateFile())
+		asserts.Equal(filesystem.ErrFileSizeTooBig, monitor.ValidateFile())
 	}
 }
 
 func TestMonitor_Complete(t *testing.T) {
-	a := assert.New(t)
-	mockNode := &mocks.NodeMock{}
-	mockNode.On("ID").Return(uint(1))
-	mockPool := &mocks.TaskPoolMock{}
-	mockPool.On("Submit", testMock.Anything)
-	m := &Monitor{
-		node: mockNode,
+	asserts := assert.New(t)
+	monitor := &Monitor{
 		Task: &model.Download{
-			Model:     gorm.Model{ID: 1},
-			TotalSize: 100,
-			UserID:    9414,
+			Model:  gorm.Model{ID: 1},
+			GID:    "gid",
+			Parent: "TestMonitor_Complete",
+			StatusInfo: rpc.StatusInfo{
+				Files: []rpc.FileInfo{
+					{
+						Selected: "true",
+						Path:     "TestMonitor_Complete",
+					},
+				},
+			},
 		},
 	}
-	m.Task.StatusInfo.Files = []rpc.FileInfo{
-		{
-			Length:   "100",
-			Selected: "true",
-		},
-	}
 
-	mock.ExpectQuery("SELECT(.+)users").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(9414))
+	cache.Set("setting_max_worker_num", "1", 0)
+	aria2.mock.ExpectQuery("SELECT(.+)tasks").WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	task.Init()
+	aria2.mock.ExpectQuery("SELECT(.+)users").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	aria2.mock.ExpectQuery("SELECT(.+)policies").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	aria2.mock.ExpectBegin()
+	aria2.mock.ExpectExec("INSERT(.+)tasks").WillReturnResult(sqlmock.NewResult(1, 1))
+	aria2.mock.ExpectCommit()
 
-	mock.ExpectBegin()
-	mock.ExpectExec("INSERT(.+)tasks").WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-
-	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE(.+)downloads").WillReturnResult(sqlmock.NewResult(1, 1))
-	mock.ExpectCommit()
-
-	a.True(m.Complete(mockPool))
-	a.NoError(mock.ExpectationsWereMet())
-	mockNode.AssertExpectations(t)
-	mockPool.AssertExpectations(t)
+	aria2.mock.ExpectBegin()
+	aria2.mock.ExpectExec("UPDATE(.+)downloads").WillReturnResult(sqlmock.NewResult(1, 1))
+	aria2.mock.ExpectCommit()
+	asserts.True(monitor.Complete(rpc.StatusInfo{}))
+	asserts.NoError(aria2.mock.ExpectationsWereMet())
 }

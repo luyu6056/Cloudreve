@@ -3,6 +3,7 @@ package onedrive
 import (
 	"context"
 	"encoding/json"
+	"github.com/cloudreve/Cloudreve/v3/pkg/cluster"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cloudreve/Cloudreve/v3/pkg/cache"
+	"github.com/cloudreve/Cloudreve/v3/pkg/conf"
 	"github.com/cloudreve/Cloudreve/v3/pkg/request"
 	"github.com/cloudreve/Cloudreve/v3/pkg/util"
 )
@@ -123,8 +125,8 @@ func (client *Client) ObtainToken(ctx context.Context, opts ...Option) (*Credent
 }
 
 // UpdateCredential 更新凭证，并检查有效期
-func (client *Client) UpdateCredential(ctx context.Context, isSlave bool) error {
-	if isSlave {
+func (client *Client) UpdateCredential(ctx context.Context) error {
+	if conf.SystemConfig.Mode == "slave" {
 		return client.fetchCredentialFromMaster(ctx)
 	}
 
@@ -177,7 +179,7 @@ func (client *Client) UpdateCredential(ctx context.Context, isSlave bool) error 
 
 // UpdateCredential 更新凭证，并检查有效期
 func (client *Client) fetchCredentialFromMaster(ctx context.Context) error {
-	res, err := client.ClusterController.GetOneDriveToken(client.Policy.MasterID, client.Policy.ID)
+	res, err := cluster.DefaultController.GetOneDriveToken(client.Policy.MasterID, client.Policy.ID)
 	if err != nil {
 		return err
 	}

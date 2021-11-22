@@ -15,40 +15,51 @@ import (
 	"github.com/cloudreve/Cloudreve/v3/pkg/util"
 )
 
+type HOOKTYPE int
+
+const (
+	BeforeAddFile HOOKTYPE = iota
+	BeforeAddFileFailed
+	AfterValidateFailed
+	BeforeFileDownload
+	BeforeUpload
+	AfterUploadFailed
+	AfterUpload
+	AfterUploadCanceled
+)
+const (
+	HOOKCLEAR  = -1 //清空
+	HOOKMAXNUM = 8
+)
+
 // Hook 钩子函数
 type Hook func(ctx context.Context, fs *FileSystem) error
 
 // Use 注入钩子
-func (fs *FileSystem) Use(name string, hook Hook) {
-	if fs.Hooks == nil {
-		fs.Hooks = make(map[string][]Hook)
-	}
-	if _, ok := fs.Hooks[name]; ok {
-		fs.Hooks[name] = append(fs.Hooks[name], hook)
-		return
-	}
-	fs.Hooks[name] = []Hook{hook}
+func (fs *FileSystem) Use(name HOOKTYPE, hook Hook) {
+
+	fs.Hooks[name] = append(fs.Hooks[name], hook)
 }
 
 // CleanHooks 清空钩子,name为空表示全部清空
-func (fs *FileSystem) CleanHooks(name string) {
-	if name == "" {
-		fs.Hooks = nil
+func (fs *FileSystem) CleanHooks(name HOOKTYPE) {
+	if name == HOOKCLEAR {
+		for k := range fs.Hooks {
+			fs.Hooks[k] = fs.Hooks[k][:0]
+		}
 	} else {
-		delete(fs.Hooks, name)
+		fs.Hooks[name] = fs.Hooks[name][:0]
 	}
 }
 
 // Trigger 触发钩子,遇到第一个错误时
 // 返回错误，后续钩子不会继续执行
-func (fs *FileSystem) Trigger(ctx context.Context, name string) error {
-	if hooks, ok := fs.Hooks[name]; ok {
-		for _, hook := range hooks {
-			err := hook(ctx, fs)
-			if err != nil {
-				util.Log().Warning("钩子执行失败：%s", err)
-				return err
-			}
+func (fs *FileSystem) Trigger(ctx context.Context, name HOOKTYPE) error {
+	for _, hook := range fs.Hooks[name] {
+		err := hook(ctx, fs)
+		if err != nil {
+			util.Log().Warning("钩子执行失败：%s", err)
+			return err
 		}
 	}
 	return nil
@@ -262,6 +273,7 @@ func GenericAfterUpdate(ctx context.Context, fs *FileSystem) error {
 
 // SlaveAfterUpload Slave模式下上传完成钩子
 func SlaveAfterUpload(ctx context.Context, fs *FileSystem) error {
+
 	fileHeader := ctx.Value(fsctx.FileHeaderCtx).(FileHeader)
 	policy := ctx.Value(fsctx.UploadPolicyCtx).(serializer.UploadPolicy)
 
@@ -283,6 +295,7 @@ func SlaveAfterUpload(ctx context.Context, fs *FileSystem) error {
 		PicInfo:    file.PicInfo,
 		Size:       fileHeader.GetSize(),
 	}
+
 	return request.RemoteCallback(policy.CallbackURL, callbackBody)
 }
 

@@ -153,10 +153,7 @@ func (handler Driver) Put(ctx context.Context, file io.ReadCloser, dst string, s
 	}
 
 	// 对文件名进行URLEncode
-	fileName, err := url.QueryUnescape(path.Base(dst))
-	if err != nil {
-		return err
-	}
+	fileName := url.QueryEscape(path.Base(dst))
 
 	// 决定是否要禁用文件覆盖
 	overwrite := "true"
@@ -277,6 +274,7 @@ func (handler Driver) Source(
 	if handler.Policy.BaseURL != "" {
 		cdnURL, err := url.Parse(handler.Policy.BaseURL)
 		if err != nil {
+
 			return "", err
 		}
 		serverURL = cdnURL
@@ -294,7 +292,7 @@ func (handler Driver) Source(
 	sourcePath := base64.RawURLEncoding.EncodeToString([]byte(path))
 	signedURI, err = auth.SignURI(
 		handler.AuthInstance,
-		fmt.Sprintf("%s/%d/%s/%s", controller, speed, sourcePath, fileName),
+		fmt.Sprintf("%s/%d/%s/%s", controller, speed, sourcePath, url.QueryEscape(fileName)),
 		ttl,
 	)
 

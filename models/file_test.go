@@ -3,7 +3,7 @@ package model
 import (
 	"errors"
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/jinzhu/gorm"
+	"gorm.io/gorm"
 	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"

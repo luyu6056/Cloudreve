@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strconv"
 
@@ -18,6 +19,7 @@ import (
 
 // SlaveUpload 从机文件上传
 func SlaveUpload(c *gin.Context) {
+
 	// 创建上下文
 	ctx, cancel := context.WithCancel(context.Background())
 	ctx = context.WithValue(ctx, fsctx.GinCtx, c)
@@ -29,8 +31,8 @@ func SlaveUpload(c *gin.Context) {
 		c.JSON(200, serializer.Err(serializer.CodePolicyNotAllowed, err.Error(), err))
 		return
 	}
-	fs.Handler = local.Driver{}
 
+	defer fs.Recycle()
 	// 从请求中取得上传策略
 	uploadPolicyRaw := c.GetHeader("X-Policy")
 	if uploadPolicyRaw == "" {
@@ -59,7 +61,6 @@ func SlaveUpload(c *gin.Context) {
 		c.JSON(200, ErrorResponse(err))
 		return
 	}
-
 	fileData := local.FileStream{
 		MIMEType: c.Request.Header.Get("Content-Type"),
 		File:     c.Request.Body,
@@ -68,10 +69,10 @@ func SlaveUpload(c *gin.Context) {
 	}
 
 	// 给文件系统分配钩子
-	fs.Use("BeforeUpload", filesystem.HookSlaveUploadValidate)
-	fs.Use("AfterUploadCanceled", filesystem.HookDeleteTempFile)
-	fs.Use("AfterUpload", filesystem.SlaveAfterUpload)
-	fs.Use("AfterValidateFailed", filesystem.HookDeleteTempFile)
+	fs.Use(filesystem.BeforeUpload, filesystem.HookSlaveUploadValidate)
+	fs.Use(filesystem.AfterUploadCanceled, filesystem.HookDeleteTempFile)
+	fs.Use(filesystem.AfterUpload, filesystem.SlaveAfterUpload)
+	fs.Use(filesystem.AfterValidateFailed, filesystem.HookDeleteTempFile)
 
 	// 是否允许覆盖
 	if c.Request.Header.Get("X-Overwrite") == "false" {
@@ -273,6 +274,21 @@ func SlaveDeleteTempFile(c *gin.Context) {
 		res := aria2.SlaveDeleteTemp(c, &service)
 		c.JSON(200, res)
 	} else {
+		c.JSON(200, ErrorResponse(err))
+	}
+}
+func SlaveCheck(c *gin.Context) {
+	// 创建上下文
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var service explorer.SlaveDownloadService
+	if err := c.ShouldBindUri(&service); err == nil {
+		res := service.CheckFile(ctx, c, false)
+
+		c.JSON(200, res)
+	} else {
+		fmt.Println(nil)
 		c.JSON(200, ErrorResponse(err))
 	}
 }

@@ -23,9 +23,10 @@ require (
 	github.com/hashicorp/go-version v1.2.0
 	github.com/jinzhu/gorm v1.9.11
 	github.com/juju/ratelimit v1.0.1
+	github.com/luyu6056/cache v1.1.9
+	github.com/luyu6056/mysql v1.0.7
 	github.com/mattn/go-colorable v0.1.4 // indirect
 	github.com/mojocn/base64Captcha v0.0.0-20190801020520-752b1cd608b2
-	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646
 	github.com/pkg/errors v0.9.1
 	github.com/pquerna/otp v1.2.0
 	github.com/qiniu/api.v7/v7 v7.4.0
@@ -34,14 +35,16 @@ require (
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/smartystreets/goconvey v1.6.4 // indirect
 	github.com/speps/go-hashids v2.0.0+incompatible
-	github.com/stretchr/testify v1.5.1
+	github.com/stretchr/testify v1.6.1
 	github.com/tencentcloud/tencentcloud-sdk-go v3.0.125+incompatible
 	github.com/tencentyun/cos-go-sdk-v5 v0.0.0-20200120023323-87ff3bc489ac
 	github.com/upyun/go-sdk v2.1.0+incompatible
 	golang.org/x/image v0.0.0-20211028202545-6944b10bf410
+	golang.org/x/net v0.0.0-20200202094626-16171245cfb2
 	golang.org/x/text v0.3.6
 	gopkg.in/alexcesaro/quotedprintable.v3 v3.0.0-20150716171945-2caba252f4dc // indirect
 	gopkg.in/go-playground/validator.v9 v9.29.1
 	gopkg.in/ini.v1 v1.51.0 // indirect
 	gopkg.in/mail.v2 v2.3.1 // indirect
+	gorm.io/gorm v1.22.3
 )

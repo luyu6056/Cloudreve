@@ -38,12 +38,3 @@ func TestFileSystem_GetThumb(t *testing.T) {
 		asserts.EqualValues(50, res.MaxAge)
 	}
 }
-
-func TestFileSystem_ThumbWorker(t *testing.T) {
-	asserts := assert.New(t)
-
-	asserts.NotPanics(func() {
-		getThumbWorker().addWorker()
-		getThumbWorker().releaseWorker()
-	})
-}

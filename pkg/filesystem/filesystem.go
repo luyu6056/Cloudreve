@@ -3,14 +3,15 @@ package filesystem
 import (
 	"errors"
 	"fmt"
-	"github.com/cloudreve/Cloudreve/v3/pkg/cluster"
-	"github.com/cloudreve/Cloudreve/v3/pkg/filesystem/driver"
-	"github.com/cloudreve/Cloudreve/v3/pkg/filesystem/driver/shadow/masterinslave"
-	"github.com/cloudreve/Cloudreve/v3/pkg/filesystem/driver/shadow/slaveinmaster"
 	"io"
 	"net/http"
 	"net/url"
 	"sync"
+
+	"github.com/cloudreve/Cloudreve/v3/pkg/cluster"
+	"github.com/cloudreve/Cloudreve/v3/pkg/filesystem/driver"
+	"github.com/cloudreve/Cloudreve/v3/pkg/filesystem/driver/shadow/masterinslave"
+	"github.com/cloudreve/Cloudreve/v3/pkg/filesystem/driver/shadow/slaveinmaster"
 
 	model "github.com/cloudreve/Cloudreve/v3/models"
 	"github.com/cloudreve/Cloudreve/v3/pkg/auth"
@@ -29,13 +30,6 @@ import (
 	cossdk "github.com/tencentyun/cos-go-sdk-v5"
 )
 
-// FSPool 文件系统资源池
-var FSPool = sync.Pool{
-	New: func() interface{} {
-		return &FileSystem{}
-	},
-}
-
 // FileHeader 上传来的文件数据处理器
 type FileHeader interface {
 	io.Reader
@@ -44,6 +38,13 @@ type FileHeader interface {
 	GetMIMEType() string
 	GetFileName() string
 	GetVirtualPath() string
+}
+
+// FSPool 文件系统资源池
+var FSPool = sync.Pool{
+	New: func() interface{} {
+		return &FileSystem{}
+	},
 }
 
 // FileSystem 管理文件的文件系统
@@ -64,7 +65,7 @@ type FileSystem struct {
 	/*
 	   钩子函数
 	*/
-	Hooks map[string][]Hook
+	Hooks [][]Hook
 
 	/*
 	   文件系统处理适配器
@@ -73,11 +74,17 @@ type FileSystem struct {
 
 	// 回收锁
 	recycleLock sync.Mutex
+
+	//slave模式下不上传0长度新文件
+	IsNew bool
 }
 
 // getEmptyFS 从pool中获取新的FileSystem
 func getEmptyFS() *FileSystem {
 	fs := FSPool.Get().(*FileSystem)
+	if cap(fs.Hooks) < HOOKMAXNUM {
+		fs.Hooks = make([][]Hook, HOOKMAXNUM)
+	}
 	return fs
 }
 
@@ -93,7 +100,9 @@ func (fs *FileSystem) reset() {
 	fs.User = nil
 	fs.CleanTargets()
 	fs.Policy = nil
-	fs.Hooks = nil
+	for k := range fs.Hooks {
+		fs.Hooks[k] = fs.Hooks[k][:0]
+	}
 	fs.Handler = nil
 	fs.Root = nil
 	fs.Lock = sync.Mutex{}

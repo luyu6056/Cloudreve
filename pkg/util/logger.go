@@ -2,9 +2,10 @@ package util
 
 import (
 	"fmt"
-	"github.com/fatih/color"
 	"sync"
 	"time"
+
+	"github.com/fatih/color"
 )
 
 const (
@@ -25,6 +26,11 @@ var Level = LevelDebug
 type Logger struct {
 	level int
 	mu    sync.Mutex
+	c     chan printParam
+}
+type printParam struct {
+	prefix string
+	msg    string
 }
 
 // 日志颜色
@@ -45,23 +51,28 @@ var spaces = map[string]string{
 	"Debug":   "  ",
 }
 
+func (ll *Logger) printChan() {
+	for s := range ll.c {
+		c := color.New()
+
+		_, _ = c.Printf(
+			"%s%s %s %s\n",
+			colors[s.prefix]("["+s.prefix+"]"),
+			spaces[s.prefix],
+			time.Now().Format("2006-01-02 15:04:05"),
+			s.msg,
+		)
+	}
+}
+
 // Println 打印
 func (ll *Logger) Println(prefix string, msg string) {
 	// TODO Release时去掉
 	// color.NoColor = false
-
-	c := color.New()
-
-	ll.mu.Lock()
-	defer ll.mu.Unlock()
-
-	_, _ = c.Printf(
-		"%s%s %s %s\n",
-		colors[prefix]("["+prefix+"]"),
-		spaces[prefix],
-		time.Now().Format("2006-01-02 15:04:05"),
-		msg,
-	)
+	ll.c <- printParam{
+		prefix: prefix,
+		msg:    msg,
+	}
 }
 
 // Panic 极端错误
@@ -94,6 +105,7 @@ func (ll *Logger) Warning(format string, v ...interface{}) {
 
 // Info 信息
 func (ll *Logger) Info(format string, v ...interface{}) {
+
 	if LevelInformational > ll.level {
 		return
 	}
@@ -143,8 +155,11 @@ func Log() *Logger {
 	if GloablLogger == nil {
 		l := Logger{
 			level: Level,
+			c:     make(chan printParam, 100),
 		}
 		GloablLogger = &l
+
+		go GloablLogger.printChan()
 	}
 	return GloablLogger
 }

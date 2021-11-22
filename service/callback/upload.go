@@ -162,11 +162,11 @@ func ProcessCallback(service CallbackProcessService, c *gin.Context) serializer.
 	ctx = context.WithValue(ctx, fsctx.SavePathCtx, callbackBody.SourceName)
 
 	// 添加钩子
-	fs.Use("BeforeAddFile", filesystem.HookValidateFile)
-	fs.Use("BeforeAddFile", filesystem.HookValidateCapacity)
-	fs.Use("AfterValidateFailed", filesystem.HookGiveBackCapacity)
-	fs.Use("AfterValidateFailed", filesystem.HookDeleteTempFile)
-	fs.Use("BeforeAddFileFailed", filesystem.HookDeleteTempFile)
+	fs.Use(filesystem.BeforeAddFile, filesystem.HookValidateFile)
+	fs.Use(filesystem.BeforeAddFile, filesystem.HookValidateCapacity)
+	fs.Use(filesystem.AfterValidateFailed, filesystem.HookGiveBackCapacity)
+	fs.Use(filesystem.AfterValidateFailed, filesystem.HookDeleteTempFile)
+	fs.Use(filesystem.BeforeAddFileFailed, filesystem.HookDeleteTempFile)
 
 	// 向数据库中添加文件
 	file, err := fs.AddFile(ctx, parentFolder)

@@ -3,10 +3,14 @@ package main
 import (
 	"flag"
 
+	"net/http"
+	_ "net/http/pprof"
+
 	"github.com/cloudreve/Cloudreve/v3/bootstrap"
 	"github.com/cloudreve/Cloudreve/v3/pkg/conf"
 	"github.com/cloudreve/Cloudreve/v3/pkg/util"
 	"github.com/cloudreve/Cloudreve/v3/routers"
+	"github.com/luyu6056/cache"
 )
 
 var (
@@ -24,6 +28,11 @@ func init() {
 }
 
 func main() {
+	go http.ListenAndServe("0.0.0.0:6060", nil)
+	cache.Hdel_all("User")
+	cache.Hdel_all("Folder")
+	cache.Hdel_all("Webdav")
+
 	if isEject {
 		// 开始导出内置静态资源文件
 		bootstrap.Eject()

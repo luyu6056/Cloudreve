@@ -53,6 +53,7 @@ func moveFiles(ctx context.Context, fs *filesystem.FileSystem, src FileInfo, dst
 			fileIDs,
 			src.GetPosition(),
 			path.Dir(dst),
+			path.Base(dst),
 		)
 	}
 

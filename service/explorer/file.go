@@ -56,8 +56,8 @@ func (service *SingleFileService) Create(c *gin.Context) serializer.Response {
 	ctx = context.WithValue(ctx, fsctx.DisableOverwrite, true)
 
 	// 给文件系统分配钩子
-	fs.Use("BeforeUpload", filesystem.HookValidateFile)
-	fs.Use("AfterUpload", filesystem.GenericAfterUpload)
+	fs.Use(filesystem.BeforeUpload, filesystem.HookValidateFile)
+	fs.Use(filesystem.AfterUpload, filesystem.GenericAfterUpload)
 
 	// 上传空文件
 	err = fs.Upload(ctx, local.FileStream{
@@ -396,22 +396,22 @@ func (service *FileIDService) PutContent(ctx context.Context, c *gin.Context) se
 	if err == nil && len(fileList) == 0 {
 		// 如果包含软连接，应重新生成新文件副本，并更新source_name
 		originFile[0].SourceName = fs.GenerateSavePath(uploadCtx, fileData)
-		fs.Use("AfterUpload", filesystem.HookUpdateSourceName)
-		fs.Use("AfterUploadCanceled", filesystem.HookUpdateSourceName)
-		fs.Use("AfterValidateFailed", filesystem.HookUpdateSourceName)
+		fs.Use(filesystem.AfterUpload, filesystem.HookUpdateSourceName)
+		fs.Use(filesystem.AfterUploadCanceled, filesystem.HookUpdateSourceName)
+		fs.Use(filesystem.AfterValidateFailed, filesystem.HookUpdateSourceName)
 	}
 
 	// 给文件系统分配钩子
-	fs.Use("BeforeUpload", filesystem.HookResetPolicy)
-	fs.Use("BeforeUpload", filesystem.HookValidateFile)
-	fs.Use("BeforeUpload", filesystem.HookChangeCapacity)
-	fs.Use("AfterUploadCanceled", filesystem.HookCleanFileContent)
-	fs.Use("AfterUploadCanceled", filesystem.HookClearFileSize)
-	fs.Use("AfterUploadCanceled", filesystem.HookGiveBackCapacity)
-	fs.Use("AfterUpload", filesystem.GenericAfterUpdate)
-	fs.Use("AfterValidateFailed", filesystem.HookCleanFileContent)
-	fs.Use("AfterValidateFailed", filesystem.HookClearFileSize)
-	fs.Use("AfterValidateFailed", filesystem.HookGiveBackCapacity)
+	fs.Use(filesystem.BeforeUpload, filesystem.HookResetPolicy)
+	fs.Use(filesystem.BeforeUpload, filesystem.HookValidateFile)
+	fs.Use(filesystem.BeforeUpload, filesystem.HookChangeCapacity)
+	fs.Use(filesystem.AfterUploadCanceled, filesystem.HookCleanFileContent)
+	fs.Use(filesystem.AfterUploadCanceled, filesystem.HookClearFileSize)
+	fs.Use(filesystem.AfterUploadCanceled, filesystem.HookGiveBackCapacity)
+	fs.Use(filesystem.AfterUpload, filesystem.GenericAfterUpdate)
+	fs.Use(filesystem.AfterValidateFailed, filesystem.HookCleanFileContent)
+	fs.Use(filesystem.AfterValidateFailed, filesystem.HookClearFileSize)
+	fs.Use(filesystem.AfterValidateFailed, filesystem.HookGiveBackCapacity)
 
 	// 执行上传
 	uploadCtx = context.WithValue(uploadCtx, fsctx.FileModelCtx, originFile[0])

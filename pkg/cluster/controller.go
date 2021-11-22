@@ -161,7 +161,6 @@ func (c *slaveController) SubmitTask(id string, job interface{}, hash string, su
 			return nil
 		}
 
-		node.jobTracker[hash] = true
 		submitter(job)
 		return nil
 	}

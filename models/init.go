@@ -9,10 +9,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jinzhu/gorm"
 
+	"strings"
+
 	_ "github.com/jinzhu/gorm/dialects/mssql"
-	_ "github.com/jinzhu/gorm/dialects/mysql"
 	_ "github.com/jinzhu/gorm/dialects/postgres"
 	_ "github.com/jinzhu/gorm/dialects/sqlite"
+	_ "github.com/luyu6056/mysql"
 )
 
 // DB 数据库链接单例
@@ -43,11 +45,14 @@ func Init() {
 				conf.DatabaseConfig.Name,
 				conf.DatabaseConfig.Port))
 		case "mysql", "mssql":
-			db, err = gorm.Open(conf.DatabaseConfig.Type, fmt.Sprintf("%s:%s@(%s:%d)/%s?charset=%s&parseTime=True&loc=Local",
+			ipport := fmt.Sprintf("%s:%d", conf.DatabaseConfig.Host, conf.DatabaseConfig.Port)
+			if strings.Contains(conf.DatabaseConfig.Host, ".sock") && conf.DatabaseConfig.Port == 0 {
+				ipport = conf.DatabaseConfig.Host
+			}
+			db, err = gorm.Open(conf.DatabaseConfig.Type, fmt.Sprintf("%s:%s@(%s)/%s?charset=%s&parseTime=True&loc=Local",
 				conf.DatabaseConfig.User,
 				conf.DatabaseConfig.Password,
-				conf.DatabaseConfig.Host,
-				conf.DatabaseConfig.Port,
+				ipport,
 				conf.DatabaseConfig.Name,
 				conf.DatabaseConfig.Charset))
 		default:

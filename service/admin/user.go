@@ -2,11 +2,13 @@ package admin
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	model "github.com/cloudreve/Cloudreve/v3/models"
 	"github.com/cloudreve/Cloudreve/v3/pkg/filesystem"
 	"github.com/cloudreve/Cloudreve/v3/pkg/serializer"
+	"github.com/luyu6056/cache"
 )
 
 // AddUserService 用户添加服务
@@ -76,6 +78,7 @@ func (service *UserBatchService) Delete() serializer.Response {
 		model.DB.Where("user_id = ?", uid).Delete(&model.Tag{})
 
 		// 删除WebDAV账号
+		cache.Hdel(strconv.Itoa(int(uid)), "Webdav")
 		model.DB.Where("user_id = ?", uid).Delete(&model.Webdav{})
 
 		// 删除此用户

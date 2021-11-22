@@ -51,11 +51,12 @@ func (h *Handler) stripPrefix(p string, uid uint) (string, int, error) {
 // isPathExist 路径是否存在
 func isPathExist(ctx context.Context, fs *filesystem.FileSystem, path string) (bool, FileInfo) {
 	// 尝试目录
-	if ok, folder := fs.IsPathExist(path); ok {
-		return ok, folder
-	}
-	if ok, file := fs.IsFileExist(path); ok {
-		return ok, file
+
+	if ok, file, folder := fs.IsFileExistFolder(path); ok {
+		if file != nil {
+			return true, file
+		}
+		return true, folder
 	}
 	return false, nil
 }
@@ -343,39 +344,40 @@ func (h *Handler) handlePut(w http.ResponseWriter, r *http.Request, fs *filesyst
 		if err == nil && len(fileList) == 0 {
 			// 如果包含软连接，应重新生成新文件副本，并更新source_name
 			originFile.SourceName = fs.GenerateSavePath(ctx, fileData)
-			fs.Use("AfterUpload", filesystem.HookUpdateSourceName)
-			fs.Use("AfterUploadCanceled", filesystem.HookUpdateSourceName)
-			fs.Use("AfterValidateFailed", filesystem.HookUpdateSourceName)
+			fs.Use(filesystem.AfterUpload, filesystem.HookUpdateSourceName)
+			fs.Use(filesystem.AfterUploadCanceled, filesystem.HookUpdateSourceName)
+			fs.Use(filesystem.AfterValidateFailed, filesystem.HookUpdateSourceName)
 		}
 
-		fs.Use("BeforeUpload", filesystem.HookResetPolicy)
-		fs.Use("BeforeUpload", filesystem.HookValidateFile)
-		fs.Use("BeforeUpload", filesystem.HookChangeCapacity)
-		fs.Use("AfterUploadCanceled", filesystem.HookCleanFileContent)
-		fs.Use("AfterUploadCanceled", filesystem.HookClearFileSize)
-		fs.Use("AfterUploadCanceled", filesystem.HookGiveBackCapacity)
-		fs.Use("AfterUploadCanceled", filesystem.HookCancelContext)
-		fs.Use("AfterUpload", filesystem.GenericAfterUpdate)
-		fs.Use("AfterValidateFailed", filesystem.HookCleanFileContent)
-		fs.Use("AfterValidateFailed", filesystem.HookClearFileSize)
-		fs.Use("AfterValidateFailed", filesystem.HookGiveBackCapacity)
+		fs.Use(filesystem.BeforeUpload, filesystem.HookResetPolicy)
+		fs.Use(filesystem.BeforeUpload, filesystem.HookValidateFile)
+		fs.Use(filesystem.BeforeUpload, filesystem.HookChangeCapacity)
+		fs.Use(filesystem.AfterUploadCanceled, filesystem.HookCleanFileContent)
+		fs.Use(filesystem.AfterUploadCanceled, filesystem.HookClearFileSize)
+		fs.Use(filesystem.AfterUploadCanceled, filesystem.HookGiveBackCapacity)
+		fs.Use(filesystem.AfterUploadCanceled, filesystem.HookCancelContext)
+		fs.Use(filesystem.AfterUpload, filesystem.GenericAfterUpdate)
+		fs.Use(filesystem.AfterValidateFailed, filesystem.HookCleanFileContent)
+		fs.Use(filesystem.AfterValidateFailed, filesystem.HookClearFileSize)
+		fs.Use(filesystem.AfterValidateFailed, filesystem.HookGiveBackCapacity)
 		ctx = context.WithValue(ctx, fsctx.FileModelCtx, *originFile)
 	} else {
+		fs.IsNew = true
+
 		// 给文件系统分配钩子
-		fs.Use("BeforeUpload", filesystem.HookValidateFile)
-		fs.Use("BeforeUpload", filesystem.HookValidateCapacity)
-		fs.Use("AfterUploadCanceled", filesystem.HookDeleteTempFile)
-		fs.Use("AfterUploadCanceled", filesystem.HookGiveBackCapacity)
-		fs.Use("AfterUploadCanceled", filesystem.HookCancelContext)
-		fs.Use("AfterUpload", filesystem.GenericAfterUpload)
-		fs.Use("AfterValidateFailed", filesystem.HookDeleteTempFile)
-		fs.Use("AfterValidateFailed", filesystem.HookGiveBackCapacity)
-		fs.Use("AfterUploadFailed", filesystem.HookGiveBackCapacity)
+		fs.Use(filesystem.BeforeUpload, filesystem.HookValidateFile)
+		fs.Use(filesystem.BeforeUpload, filesystem.HookValidateCapacity)
+		fs.Use(filesystem.AfterUploadCanceled, filesystem.HookDeleteTempFile)
+		fs.Use(filesystem.AfterUploadCanceled, filesystem.HookGiveBackCapacity)
+		fs.Use(filesystem.AfterUploadCanceled, filesystem.HookCancelContext)
+		fs.Use(filesystem.AfterUpload, filesystem.GenericAfterUpload)
+		fs.Use(filesystem.AfterValidateFailed, filesystem.HookDeleteTempFile)
+		fs.Use(filesystem.AfterValidateFailed, filesystem.HookGiveBackCapacity)
+		fs.Use(filesystem.AfterUploadFailed, filesystem.HookGiveBackCapacity)
 
 		// 禁止覆盖
 		ctx = context.WithValue(ctx, fsctx.DisableOverwrite, true)
 	}
-
 	// 执行上传
 	err = fs.Upload(ctx, fileData)
 	if err != nil {
@@ -454,7 +456,6 @@ func (h *Handler) handleCopyMove(w http.ResponseWriter, r *http.Request, fs *fil
 	}
 
 	ctx := r.Context()
-
 	isExist, target := isPathExist(ctx, fs, src)
 
 	if !isExist {
@@ -642,7 +643,6 @@ func (h *Handler) handlePropfind(w http.ResponseWriter, r *http.Request, fs *fil
 	if !ok {
 		return http.StatusNotFound, err
 	}
-
 	depth := infiniteDepth
 	if hdr := r.Header.Get("Depth"); hdr != "" {
 		depth = parseDepth(hdr)
@@ -656,7 +656,6 @@ func (h *Handler) handlePropfind(w http.ResponseWriter, r *http.Request, fs *fil
 	}
 
 	mw := multistatusWriter{w: w}
-
 	walkFn := func(reqPath string, info FileInfo, err error) error {
 
 		if err != nil {
@@ -687,7 +686,6 @@ func (h *Handler) handlePropfind(w http.ResponseWriter, r *http.Request, fs *fil
 		}
 		return mw.write(makePropstatResponse(href, pstats))
 	}
-
 	walkErr := walkFS(ctx, fs, depth, reqPath, fi, walkFn)
 	closeErr := mw.close()
 	if walkErr != nil {

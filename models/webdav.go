@@ -1,7 +1,10 @@
 package model
 
 import (
+	"strconv"
+
 	"github.com/jinzhu/gorm"
+	"github.com/luyu6056/cache"
 )
 
 // Webdav 应用账户
@@ -24,7 +27,14 @@ func (webdav *Webdav) Create() (uint, error) {
 // GetWebdavByPassword 根据密码和用户查找Webdav应用
 func GetWebdavByPassword(password string, uid uint) (*Webdav, error) {
 	webdav := &Webdav{}
+	c := cache.Hget(strconv.Itoa(int(uid)), "Webdav")
+	if ok := c.Get(password, &webdav); ok {
+		return webdav, nil
+	}
 	res := DB.Where("user_id = ? and password = ?", uid, password).First(webdav)
+	if webdav.ID > 0 {
+		c.Set(password, webdav)
+	}
 	return webdav, res.Error
 }
 
@@ -37,5 +47,6 @@ func ListWebDAVAccounts(uid uint) []Webdav {
 
 // DeleteWebDAVAccountByID 根据账户ID和UID删除账户
 func DeleteWebDAVAccountByID(id, uid uint) {
+	cache.Hdel(strconv.Itoa(int(uid)), "Webdav")
 	DB.Where("user_id = ? and id = ?", uid, id).Delete(&Webdav{})
 }

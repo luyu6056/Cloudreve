@@ -299,7 +299,7 @@ func (service *ItemMoveService) Move(ctx context.Context, c *gin.Context) serial
 
 	// 移动对象
 	items := service.Src.Raw()
-	err = fs.Move(ctx, items.Dirs, items.Items, service.SrcDir, service.Dst)
+	err = fs.Move(ctx, items.Dirs, items.Items, service.SrcDir, service.Dst, "")
 	if err != nil {
 		return serializer.Err(serializer.CodeNotSet, err.Error(), err)
 	}

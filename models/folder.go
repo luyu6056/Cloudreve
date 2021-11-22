@@ -3,10 +3,12 @@ package model
 import (
 	"errors"
 	"path"
+	"strconv"
 	"time"
 
 	"github.com/cloudreve/Cloudreve/v3/pkg/util"
 	"github.com/jinzhu/gorm"
+	"github.com/luyu6056/cache"
 )
 
 // Folder 目录
@@ -33,6 +35,11 @@ func (folder *Folder) Create() (uint, error) {
 // GetChild 返回folder下名为name的子目录，不存在则返回错误
 func (folder *Folder) GetChild(name string) (*Folder, error) {
 	var resFolder Folder
+	c := cache.Hget(strconv.Itoa(int(folder.OwnerID)), "Folder")
+	cacheKey := strconv.Itoa(int(folder.ID)) + "_" + name
+	if ok := c.Get(cacheKey, &resFolder); ok {
+		return &resFolder, nil
+	}
 	err := DB.
 		Where("parent_id = ? AND owner_id = ? AND name = ?", folder.ID, folder.OwnerID, name).
 		First(&resFolder).Error
@@ -40,7 +47,9 @@ func (folder *Folder) GetChild(name string) (*Folder, error) {
 	// 将子目录的路径传递下去
 	if err == nil {
 		resFolder.Position = path.Join(folder.Position, folder.Name)
+		c.Set(cacheKey, resFolder)
 	}
+
 	return &resFolder, err
 }
 
@@ -127,7 +136,17 @@ func GetRecursiveChildFolder(dirs []uint, uid uint, includeSelf bool) ([]Folder,
 
 // DeleteFolderByIDs 根据给定ID批量删除目录记录
 func DeleteFolderByIDs(ids []uint) error {
-	result := DB.Where("id in (?)", ids).Unscoped().Delete(&Folder{})
+	//删除缓存
+	var folders []Folder
+	result := DB.Where("id in (?)", ids).Find(&folders)
+	if result.Error != nil {
+		return result.Error
+	}
+	for _, f := range folders {
+		cache.Hdel(strconv.Itoa(int(f.OwnerID)), "Folder")
+	}
+	//删除数据库
+	result = DB.Where("id in (?)", ids).Unscoped().Delete(&Folder{})
 	return result.Error
 }
 
@@ -140,7 +159,8 @@ func GetFoldersByIDs(ids []uint, uid uint) ([]Folder, error) {
 
 // MoveOrCopyFileTo 将此目录下的files移动或复制至dstFolder，
 // 返回此操作新增的容量
-func (folder *Folder) MoveOrCopyFileTo(files []uint, dstFolder *Folder, isCopy bool) (uint64, error) {
+// 增加重命名
+func (folder *Folder) MoveOrCopyFileTo(files []uint, dstFolder *Folder, name string, isCopy bool) (uint64, error) {
 	// 已复制文件的总大小
 	var copiedSize uint64
 
@@ -161,7 +181,9 @@ func (folder *Folder) MoveOrCopyFileTo(files []uint, dstFolder *Folder, isCopy b
 			oldFile.Model = gorm.Model{}
 			oldFile.FolderID = dstFolder.ID
 			oldFile.UserID = dstFolder.OwnerID
-
+			if name != "" {
+				oldFile.Name = name
+			}
 			if err := DB.Create(&oldFile).Error; err != nil {
 				return copiedSize, err
 			}
@@ -170,6 +192,12 @@ func (folder *Folder) MoveOrCopyFileTo(files []uint, dstFolder *Folder, isCopy b
 		}
 
 	} else {
+		update := map[string]interface{}{
+			"folder_id": dstFolder.ID,
+		}
+		if name != "" {
+			update["name"] = name
+		}
 		// 更改顶级要移动文件的父目录指向
 		err := DB.Model(File{}).Where(
 			"id in (?) and user_id = ? and folder_id = ?",
@@ -177,9 +205,7 @@ func (folder *Folder) MoveOrCopyFileTo(files []uint, dstFolder *Folder, isCopy b
 			folder.OwnerID,
 			folder.ID,
 		).
-			Update(map[string]interface{}{
-				"folder_id": dstFolder.ID,
-			}).
+			Update(update).
 			Error
 		if err != nil {
 			return 0, err
@@ -262,16 +288,35 @@ func (folder *Folder) CopyFolderTo(folderID uint, dstFolder *Folder) (size uint6
 
 // MoveFolderTo 将folder目录下的dirs子目录复制或移动到dstFolder，
 // 返回此过程中增加的容量
-func (folder *Folder) MoveFolderTo(dirs []uint, dstFolder *Folder) error {
+// 增加重命名
+func (folder *Folder) MoveFolderTo(dirs []uint, dstFolder *Folder, name string) error {
+	//删除缓存
+	var folders []Folder
+	result := DB.Where(
+		"id in (?) and owner_id = ? and parent_id = ?",
+		dirs,
+		folder.OwnerID,
+		folder.ID,
+	).Find(&folders)
+	if result.Error != nil {
+		return result.Error
+	}
+	for _, f := range folders {
+		cache.Hdel(strconv.Itoa(int(f.OwnerID)), "Folder")
+	}
+	update := map[string]interface{}{
+		"parent_id": dstFolder.ID,
+	}
+	if name != "" {
+		update["name"] = name
+	}
 	// 更改顶级要移动目录的父目录指向
 	err := DB.Model(Folder{}).Where(
 		"id in (?) and owner_id = ? and parent_id = ?",
 		dirs,
 		folder.OwnerID,
 		folder.ID,
-	).Update(map[string]interface{}{
-		"parent_id": dstFolder.ID,
-	}).Error
+	).Update(update).Error
 
 	return err
 
@@ -279,6 +324,9 @@ func (folder *Folder) MoveFolderTo(dirs []uint, dstFolder *Folder) error {
 
 // Rename 重命名目录
 func (folder *Folder) Rename(new string) error {
+	//删除缓存
+	cache.Hdel(strconv.Itoa(int(folder.OwnerID)), "Folder")
+
 	if err := DB.Model(&folder).Update("name", new).Error; err != nil {
 		return err
 	}

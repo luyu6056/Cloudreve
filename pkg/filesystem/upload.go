@@ -24,14 +24,12 @@ import (
 // Upload 上传文件
 func (fs *FileSystem) Upload(ctx context.Context, file FileHeader) (err error) {
 	ctx = context.WithValue(ctx, fsctx.FileHeaderCtx, file)
-
 	// 上传前的钩子
-	err = fs.Trigger(ctx, "BeforeUpload")
+	err = fs.Trigger(ctx, BeforeUpload)
 	if err != nil {
 		request.BlackHole(file)
 		return err
 	}
-
 	// 生成文件名和路径,
 	var savePath string
 	// 如果是更新操作就从上下文中获取
@@ -41,23 +39,24 @@ func (fs *FileSystem) Upload(ctx context.Context, file FileHeader) (err error) {
 		savePath = fs.GenerateSavePath(ctx, file)
 	}
 	ctx = context.WithValue(ctx, fsctx.SavePathCtx, savePath)
-
 	// 处理客户端未完成上传时，关闭连接
 	go fs.CancelUpload(ctx, savePath, file)
-
-	// 保存文件
-	err = fs.Handler.Put(ctx, file, savePath, file.GetSize())
-	if err != nil {
-		fs.Trigger(ctx, "AfterUploadFailed")
-		return err
+	slaveIsNew := fs.User.Policy.Type == "remote" && fs.IsNew && file.GetSize() == 0
+	if !slaveIsNew { //针对RaiDrive优化
+		// 保存文件
+		err = fs.Handler.Put(ctx, file, savePath, file.GetSize())
+		if err != nil {
+			fs.Trigger(ctx, AfterUploadFailed)
+			return err
+		}
 	}
 
 	// 上传完成后的钩子
-	err = fs.Trigger(ctx, "AfterUpload")
+	err = fs.Trigger(ctx, AfterUpload)
 
 	if err != nil {
 		// 上传完成后续处理失败
-		followUpErr := fs.Trigger(ctx, "AfterValidateFailed")
+		followUpErr := fs.Trigger(ctx, AfterValidateFailed)
 		// 失败后再失败...
 		if followUpErr != nil {
 			util.Log().Debug("AfterValidateFailed 钩子执行失败，%s", followUpErr)
@@ -65,7 +64,6 @@ func (fs *FileSystem) Upload(ctx context.Context, file FileHeader) (err error) {
 
 		return err
 	}
-
 	util.Log().Info(
 		"新文件PUT:%s , 大小:%d, 上传者:%s",
 		file.GetFileName(),
@@ -133,11 +131,11 @@ func (fs *FileSystem) CancelUpload(ctx context.Context, path string, file FileHe
 		default:
 			// 客户端取消上传，删除临时文件
 			util.Log().Debug("客户端取消上传")
-			if fs.Hooks["AfterUploadCanceled"] == nil {
+			if len(fs.Hooks[AfterUploadCanceled]) == 0 {
 				return
 			}
 			ctx = context.WithValue(ctx, fsctx.SavePathCtx, path)
-			err := fs.Trigger(ctx, "AfterUploadCanceled")
+			err := fs.Trigger(ctx, AfterUploadCanceled)
 			if err != nil {
 				util.Log().Debug("执行 AfterUploadCanceled 钩子出错，%s", err)
 			}
@@ -212,14 +210,14 @@ func (fs *FileSystem) UploadFromStream(ctx context.Context, src io.ReadCloser, d
 	// 给文件系统分配钩子
 	fs.Lock.Lock()
 	if fs.Hooks == nil {
-		fs.Use("BeforeUpload", HookValidateFile)
-		fs.Use("BeforeUpload", HookValidateCapacity)
-		fs.Use("AfterUploadCanceled", HookDeleteTempFile)
-		fs.Use("AfterUploadCanceled", HookGiveBackCapacity)
-		fs.Use("AfterUpload", GenericAfterUpload)
-		fs.Use("AfterValidateFailed", HookDeleteTempFile)
-		fs.Use("AfterValidateFailed", HookGiveBackCapacity)
-		fs.Use("AfterUploadFailed", HookGiveBackCapacity)
+		fs.Use(BeforeUpload, HookValidateFile)
+		fs.Use(BeforeUpload, HookValidateCapacity)
+		fs.Use(AfterUploadCanceled, HookDeleteTempFile)
+		fs.Use(AfterUploadCanceled, HookGiveBackCapacity)
+		fs.Use(AfterUpload, GenericAfterUpload)
+		fs.Use(AfterValidateFailed, HookDeleteTempFile)
+		fs.Use(AfterValidateFailed, HookGiveBackCapacity)
+		fs.Use(AfterUploadFailed, HookGiveBackCapacity)
 	}
 	fs.Lock.Unlock()
 

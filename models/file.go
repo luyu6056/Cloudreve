@@ -2,7 +2,9 @@ package model
 
 import (
 	"encoding/gob"
+	"fmt"
 	"path"
+	"runtime/debug"
 	"time"
 
 	"github.com/cloudreve/Cloudreve/v3/pkg/util"
@@ -191,7 +193,11 @@ func (file *File) UpdatePicInfo(value string) error {
 
 // UpdateSize 更新文件的大小信息
 func (file *File) UpdateSize(value uint64) error {
-	return DB.Model(&file).Set("gorm:association_autoupdate", false).Update("size", value).Error
+	updateFileSizeChan <- updateFileSizeParam{
+		uid:  file.Model.ID,
+		size: value,
+	}
+	return nil
 }
 
 // UpdateSourceName 更新文件的源文件名
@@ -220,4 +226,29 @@ func (file *File) IsDir() bool {
 
 func (file *File) GetPosition() string {
 	return file.Position
+}
+
+type updateFileSizeParam struct {
+	uid  uint
+	size uint64
+}
+
+var updateFileSizeChan = make(chan updateFileSizeParam, 100)
+
+func UpdateFileSize() {
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Printf("%v\r\n%v", err, string(debug.Stack()))
+		}
+		go UpdateFileSize()
+	}()
+	file := &File{}
+	for param := range updateFileSizeChan {
+		file.Model.ID = param.uid
+		DB.Model(&file).Set("gorm:association_autoupdate", false).Update("size", param.size)
+	}
+
+}
+func init() {
+	go UpdateFileSize()
 }

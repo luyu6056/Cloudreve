@@ -96,9 +96,9 @@ func (job *ImportTask) Do() {
 	defer fs.Recycle()
 
 	// 注册钩子
-	fs.Use("BeforeAddFile", filesystem.HookValidateFile)
-	fs.Use("BeforeAddFile", filesystem.HookValidateCapacity)
-	fs.Use("AfterValidateFailed", filesystem.HookGiveBackCapacity)
+	fs.Use(filesystem.BeforeAddFile, filesystem.HookValidateFile)
+	fs.Use(filesystem.BeforeAddFile, filesystem.HookValidateCapacity)
+	fs.Use(filesystem.AfterValidateFailed, filesystem.HookGiveBackCapacity)
 
 	// 列取目录、对象
 	job.TaskModel.SetProgress(ListingProgress)

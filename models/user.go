@@ -5,10 +5,14 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"runtime/debug"
+	"strconv"
 	"strings"
 
 	"github.com/cloudreve/Cloudreve/v3/pkg/util"
 	"github.com/jinzhu/gorm"
+	"github.com/luyu6056/cache"
 	"github.com/pkg/errors"
 )
 
@@ -55,7 +59,14 @@ type UserOption struct {
 // Root 获取用户的根目录
 func (user *User) Root() (*Folder, error) {
 	var folder Folder
+	c := cache.Hget(strconv.Itoa(int(user.ID)), "Folder")
+	if ok := c.Get("0", &folder); ok {
+		return &folder, nil
+	}
 	err := DB.Where("parent_id is NULL AND owner_id = ?", user.ID).First(&folder).Error
+	if folder.OwnerID != 0 {
+		c.Set("0", folder)
+	}
 	return &folder, err
 }
 
@@ -65,14 +76,20 @@ func (user *User) DeductionStorage(size uint64) bool {
 		return true
 	}
 	if size <= user.Storage {
+		storageUpdateChan <- storageUpdateParam{
+			increase: -int64(size),
+			uid:      user.Model.ID,
+		}
 		user.Storage -= size
-		DB.Model(user).Update("storage", gorm.Expr("storage - ?", size))
+
 		return true
 	}
 	// 如果要减少的容量超出已用容量，则设为零
 	user.Storage = 0
-	DB.Model(user).Update("storage", 0)
-
+	storageUpdateChan <- storageUpdateParam{
+		increase: -int64(user.Storage),
+		uid:      user.Model.ID,
+	}
 	return false
 }
 
@@ -83,7 +100,10 @@ func (user *User) IncreaseStorage(size uint64) bool {
 	}
 	if size <= user.GetRemainingCapacity() {
 		user.Storage += size
-		DB.Model(user).Update("storage", gorm.Expr("storage + ?", size))
+		storageUpdateChan <- storageUpdateParam{
+			increase: int64(size),
+			uid:      user.Model.ID,
+		}
 		return true
 	}
 	return false
@@ -94,8 +114,10 @@ func (user *User) IncreaseStorageWithoutCheck(size uint64) {
 	if size == 0 {
 		return
 	}
-	user.Storage += size
-	DB.Model(user).Update("storage", gorm.Expr("storage + ?", size))
+	storageUpdateChan <- storageUpdateParam{
+		increase: int64(size),
+		uid:      user.Model.ID,
+	}
 
 }
 
@@ -147,7 +169,18 @@ func GetUserByEmail(email string) (User, error) {
 // GetActiveUserByEmail 用Email获取可登录用户
 func GetActiveUserByEmail(email string) (User, error) {
 	var user User
+	c := cache.Hget("email", "User")
+	if ok := c.Get(email, &user); ok {
+		if user.Status == Active {
+			return user, nil
+		} else {
+
+			return user, gorm.ErrRecordNotFound
+		}
+	}
 	result := DB.Set("gorm:auto_preload", true).Where("status = ? and email = ?", Active, email).First(&user)
+
+	c.Set(email, user)
 	return user, result.Error
 }
 
@@ -182,7 +215,6 @@ func (user *User) AfterFind() (err error) {
 	if user.Options != "" {
 		err = json.Unmarshal([]byte(user.Options), &user.OptionsSerialized)
 	}
-
 	// 预加载存储策略
 	user.Policy, _ = GetPolicyByID(user.GetPolicyID(0))
 	return err
@@ -263,18 +295,50 @@ func (user *User) IsAnonymous() bool {
 
 // SetStatus 设定用户状态
 func (user *User) SetStatus(status int) {
+	cache.Hdel_all("User")
 	DB.Model(&user).Update("status", status)
 }
 
 // Update 更新用户
 func (user *User) Update(val map[string]interface{}) error {
+	cache.Hdel_all("User")
 	return DB.Model(user).Updates(val).Error
 }
 
 // UpdateOptions 更新用户偏好设定
 func (user *User) UpdateOptions() error {
+	cache.Hdel_all("User")
 	if err := user.SerializeOptions(); err != nil {
 		return err
 	}
 	return user.Update(map[string]interface{}{"options": user.Options})
+}
+
+type storageUpdateParam struct {
+	uid      uint
+	increase int64
+}
+
+var storageUpdateChan = make(chan storageUpdateParam, 100)
+
+func UserUpdateStorage() {
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Printf("%v\r\n%v", err, string(debug.Stack()))
+		}
+		go UserUpdateStorage()
+	}()
+	user := &User{}
+	for param := range storageUpdateChan {
+		user.Model.ID = param.uid
+		if param.increase > 0 {
+			DB.Model(user).Update("storage", gorm.Expr("storage + ?", param.increase))
+		} else {
+			DB.Model(user).Update("storage", gorm.Expr("storage - ?", -param.increase))
+		}
+	}
+
+}
+func init() {
+	go UserUpdateStorage()
 }
