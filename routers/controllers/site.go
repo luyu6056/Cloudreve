@@ -29,7 +29,8 @@ func SiteConfig(c *gin.Context) {
 		"captcha_TCaptcha_CaptchaAppId",
 		"register_enabled",
 	)
-
+	model.GetSettingByNames(
+		"siteName")
 	// 如果已登录，则同时返回用户信息和标签
 	user, _ := c.Get("user")
 	if user, ok := user.(*model.User); ok {

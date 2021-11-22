@@ -1,11 +1,13 @@
 package request
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"path"
 	"strings"
@@ -16,6 +18,7 @@ import (
 	"github.com/cloudreve/Cloudreve/v3/pkg/conf"
 	"github.com/cloudreve/Cloudreve/v3/pkg/serializer"
 	"github.com/cloudreve/Cloudreve/v3/pkg/util"
+	"golang.org/x/net/http2"
 )
 
 // GeneralClient 通用 HTTP Client
@@ -34,24 +37,71 @@ type Client interface {
 
 // HTTPClient 实现 Client 接口
 type HTTPClient struct {
-	mu      sync.Mutex
-	options *options
+	mu         sync.Mutex
+	options    *options
+	httpclient *http.Client
 }
 
 func NewClient(opts ...Option) Client {
 	client := &HTTPClient{
 		options: newDefaultOption(),
 	}
-
 	for _, o := range opts {
 		o.apply(client.options)
 	}
 
+	client.httpclient = &http.Client{}
+
+	return client
+}
+
+//无opts复用http2
+var h2cClientMap, http2ClientMap sync.Map
+
+func NewH2cClient(serverUrl string) Client {
+	var client *HTTPClient
+	if v, ok := h2cClientMap.Load(serverUrl); !ok {
+		client = &HTTPClient{
+			httpclient: &http.Client{
+				Transport: &http2.Transport{
+					TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+					AllowHTTP:       true,
+					DialTLS: func(network, addr string, cfg *tls.Config) (net.Conn, error) {
+						return net.Dial(network, addr)
+					},
+				},
+			},
+			options: newDefaultOption(),
+		}
+
+		h2cClientMap.Store(serverUrl, client)
+	} else {
+		client = v.(*HTTPClient)
+	}
+
+	return client
+}
+func NewHttp2Client(serverUrl string) Client {
+	var client *HTTPClient
+	if v, ok := http2ClientMap.Load(serverUrl); !ok {
+		client := &HTTPClient{
+			httpclient: &http.Client{
+				Transport: &http2.Transport{
+					TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				},
+			},
+			options: newDefaultOption(),
+		}
+		http2ClientMap.Store(serverUrl, client)
+	} else {
+		client = v.(*HTTPClient)
+	}
 	return client
 }
 
 // Request 发送HTTP请求
 func (c *HTTPClient) Request(method, target string, body io.Reader, opts ...Option) *Response {
+
 	// 应用额外设置
 	c.mu.Lock()
 	options := *c.options
@@ -59,9 +109,8 @@ func (c *HTTPClient) Request(method, target string, body io.Reader, opts ...Opti
 	for _, o := range opts {
 		o.apply(&options)
 	}
-
-	client := &http.Client{Timeout: options.timeout}
-
+	client := c.httpclient
+	client.Timeout = options.timeout
 	// size为0时将body设为nil
 	if options.contentLength == 0 {
 		body = nil

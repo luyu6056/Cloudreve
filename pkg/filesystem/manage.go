@@ -40,11 +40,11 @@ func (fs *FileSystem) Rename(ctx context.Context, dir, file []uint, new string) 
 
 	// 如果源对象是文件
 	if len(file) > 0 {
+
 		fileObject, err := model.GetFilesByIDs([]uint{file[0]}, fs.User.ID)
 		if err != nil || len(fileObject) == 0 {
 			return ErrPathNotExist
 		}
-
 		err = fileObject[0].Rename(new)
 		if err != nil {
 			return ErrFileExisted
@@ -160,7 +160,6 @@ func (fs *FileSystem) Delete(ctx context.Context, dirs, files []uint, force bool
 			return err
 		}
 	}
-
 	// 去除待删除文件中包含软连接的部分
 	filesToBeDelete, err := model.RemoveFilesWithSoftLinks(fs.FileTarget)
 	if err != nil {
@@ -413,7 +412,6 @@ func (fs *FileSystem) CreateDirectory(ctx context.Context, fullPath string) (*mo
 		}
 		parent = newParent
 	}
-
 	// 是否有同名文件
 	if ok, _ := fs.IsChildFileExist(parent, dir); ok {
 		return nil, ErrFileExisted
@@ -426,7 +424,6 @@ func (fs *FileSystem) CreateDirectory(ctx context.Context, fullPath string) (*mo
 		OwnerID:  fs.User.ID,
 	}
 	_, err := newFolder.Create()
-
 	if err != nil {
 		if _, ok := ctx.Value(fsctx.IgnoreDirectoryConflictCtx).(bool); !ok {
 			return nil, ErrFolderExisted

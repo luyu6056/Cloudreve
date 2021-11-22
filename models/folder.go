@@ -4,11 +4,11 @@ import (
 	"errors"
 	"path"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/cloudreve/Cloudreve/v3/pkg/util"
 	"github.com/jinzhu/gorm"
-	"github.com/luyu6056/cache"
 )
 
 // Folder 目录
@@ -23,24 +23,64 @@ type Folder struct {
 	Position string `gorm:"-"`
 }
 
+var folderCache sync.Map
+
+func MakeFolderCache() {
+	var resFolder []*Folder
+	err := DB.Where("1=1").Find(&resFolder).Error
+	if err != nil {
+		panic("初始化Folder缓存错误" + err.Error())
+	}
+	for _, v := range resFolder {
+		storeFolderCache(v)
+	}
+}
+func storeFolderCache(v *Folder) {
+	if _, ok := folderCache.Load(v.OwnerID); !ok {
+		folderCache.Store(v.OwnerID, &sync.Map{})
+	}
+	m, _ := folderCache.Load(v.OwnerID)
+	var cacheKey string
+	if v.ParentID != nil {
+		cacheKey = strconv.Itoa(int(*v.ParentID)) + "_" + v.Name
+	} else {
+		cacheKey = "0"
+	}
+	m.(*sync.Map).Store(cacheKey, v)
+}
+func deleteFolderCache(f *Folder) {
+	if v, ok := folderCache.Load(f.OwnerID); ok {
+		var key string
+		if f.ParentID != nil {
+			key = strconv.Itoa(int(*f.ParentID)) + "_" + f.Name
+		} else {
+			key = "0"
+		}
+		v.(*sync.Map).Delete(key)
+	}
+}
+
 // Create 创建目录
 func (folder *Folder) Create() (uint, error) {
 	if err := DB.Create(folder).Error; err != nil {
 		util.Log().Warning("无法插入目录记录, %s", err)
 		return 0, err
 	}
+	storeFolderCache(folder)
 	return folder.ID, nil
 }
 
 // GetChild 返回folder下名为name的子目录，不存在则返回错误
 func (folder *Folder) GetChild(name string) (*Folder, error) {
-	var resFolder Folder
-	c := cache.Hget(strconv.Itoa(int(folder.OwnerID)), "Folder")
-	cacheKey := strconv.Itoa(int(folder.ID)) + "_" + name
-	if ok := c.Get(cacheKey, &resFolder); ok {
-		return &resFolder, nil
+	if v, ok := folderCache.Load(folder.OwnerID); ok {
+		cacheKey := strconv.Itoa(int(folder.ID)) + "_" + name
+		if resFolder, ok := v.(*sync.Map).Load(cacheKey); ok {
+			resFolder.(*Folder).Position = path.Join(folder.Position, folder.Name)
+			return resFolder.(*Folder), nil
+		}
 	}
-	err := DB.
+
+	/*err := DB.
 		Where("parent_id = ? AND owner_id = ? AND name = ?", folder.ID, folder.OwnerID, name).
 		First(&resFolder).Error
 
@@ -48,9 +88,9 @@ func (folder *Folder) GetChild(name string) (*Folder, error) {
 	if err == nil {
 		resFolder.Position = path.Join(folder.Position, folder.Name)
 		c.Set(cacheKey, resFolder)
-	}
+	}*/
 
-	return &resFolder, err
+	return nil, gorm.ErrRecordNotFound
 }
 
 // TraceRoot 向上递归查找父目录
@@ -136,23 +176,27 @@ func GetRecursiveChildFolder(dirs []uint, uid uint, includeSelf bool) ([]Folder,
 
 // DeleteFolderByIDs 根据给定ID批量删除目录记录
 func DeleteFolderByIDs(ids []uint) error {
-	//删除缓存
-	var folders []Folder
+
+	var folders []*Folder
 	result := DB.Where("id in (?)", ids).Find(&folders)
 	if result.Error != nil {
 		return result.Error
 	}
-	for _, f := range folders {
-		cache.Hdel(strconv.Itoa(int(f.OwnerID)), "Folder")
-	}
 	//删除数据库
-	result = DB.Where("id in (?)", ids).Unscoped().Delete(&Folder{})
+	result = DB.Where("id in (?)", ids).Delete(&Folder{})
+	if result.Error == nil {
+		//删除缓存
+		for _, f := range folders {
+			deleteFolderCache(f)
+		}
+	}
 	return result.Error
 }
 
 // GetFoldersByIDs 根据ID和用户查找所有目录
 func GetFoldersByIDs(ids []uint, uid uint) ([]Folder, error) {
 	var folders []Folder
+
 	result := DB.Where("id in (?) AND owner_id = ?", ids, uid).Find(&folders)
 	return folders, result.Error
 }
@@ -163,18 +207,18 @@ func GetFoldersByIDs(ids []uint, uid uint) ([]Folder, error) {
 func (folder *Folder) MoveOrCopyFileTo(files []uint, dstFolder *Folder, name string, isCopy bool) (uint64, error) {
 	// 已复制文件的总大小
 	var copiedSize uint64
+	var originFiles []*File
+	// 检索出要复制的文件
 
+	if err := DB.Where(
+		"id in (?) and user_id = ? and folder_id = ?",
+		files,
+		folder.OwnerID,
+		folder.ID,
+	).Find(&originFiles).Error; err != nil {
+		return 0, err
+	}
 	if isCopy {
-		// 检索出要复制的文件
-		var originFiles = make([]File, 0, len(files))
-		if err := DB.Where(
-			"id in (?) and user_id = ? and folder_id = ?",
-			files,
-			folder.OwnerID,
-			folder.ID,
-		).Find(&originFiles).Error; err != nil {
-			return 0, err
-		}
 
 		// 复制文件记录
 		for _, oldFile := range originFiles {
@@ -192,6 +236,9 @@ func (folder *Folder) MoveOrCopyFileTo(files []uint, dstFolder *Folder, name str
 		}
 
 	} else {
+		for _, oldFile := range originFiles {
+			deleteFileCache(oldFile)
+		}
 		update := map[string]interface{}{
 			"folder_id": dstFolder.ID,
 		}
@@ -205,7 +252,7 @@ func (folder *Folder) MoveOrCopyFileTo(files []uint, dstFolder *Folder, name str
 			folder.OwnerID,
 			folder.ID,
 		).
-			Update(update).
+			Updates(update).
 			Error
 		if err != nil {
 			return 0, err
@@ -257,7 +304,7 @@ func (folder *Folder) CopyFolderTo(folderID uint, dstFolder *Folder) (size uint6
 		}
 		// 记录新的ID以便其子目录使用
 		newIDCache[oldID] = folder.ID
-
+		storeFolderCache(&folder)
 	}
 
 	// 复制文件
@@ -291,7 +338,7 @@ func (folder *Folder) CopyFolderTo(folderID uint, dstFolder *Folder) (size uint6
 // 增加重命名
 func (folder *Folder) MoveFolderTo(dirs []uint, dstFolder *Folder, name string) error {
 	//删除缓存
-	var folders []Folder
+	var folders []*Folder
 	result := DB.Where(
 		"id in (?) and owner_id = ? and parent_id = ?",
 		dirs,
@@ -301,9 +348,7 @@ func (folder *Folder) MoveFolderTo(dirs []uint, dstFolder *Folder, name string) 
 	if result.Error != nil {
 		return result.Error
 	}
-	for _, f := range folders {
-		cache.Hdel(strconv.Itoa(int(f.OwnerID)), "Folder")
-	}
+
 	update := map[string]interface{}{
 		"parent_id": dstFolder.ID,
 	}
@@ -316,20 +361,33 @@ func (folder *Folder) MoveFolderTo(dirs []uint, dstFolder *Folder, name string) 
 		dirs,
 		folder.OwnerID,
 		folder.ID,
-	).Update(update).Error
+	).Updates(update).Error
+	if err == nil {
+		for _, f := range folders {
+			deleteFolderCache(f)
+			id := dstFolder.ID
+			f.ParentID = &id
+			if name != "" {
+				f.Name = name
+			}
+			storeFolderCache(f)
+		}
 
+	}
 	return err
-
 }
 
 // Rename 重命名目录
 func (folder *Folder) Rename(new string) error {
 	//删除缓存
-	cache.Hdel(strconv.Itoa(int(folder.OwnerID)), "Folder")
 
 	if err := DB.Model(&folder).Update("name", new).Error; err != nil {
 		return err
 	}
+	deleteFolderCache(folder)
+	folder.Name = new
+	storeFolderCache(folder)
+
 	return nil
 }
 

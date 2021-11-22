@@ -9,6 +9,7 @@ import (
 
 	"github.com/cloudreve/Cloudreve/v3/pkg/util"
 	"github.com/jinzhu/gorm"
+	"github.com/luyu6056/cache"
 )
 
 // File 文件
@@ -35,24 +36,47 @@ func init() {
 	gob.Register(File{})
 }
 
+func deleteFileCache(file *File) {
+
+	key := fmt.Sprintf("%d_%s", file.FolderID, file.Name)
+	if _, ok := cache.Has(key, "file"); ok {
+		cache.Hdel(key, "file")
+	}
+}
+
 // Create 创建文件记录
 func (file *File) Create() (uint, error) {
+
 	if err := DB.Create(file).Error; err != nil {
 		util.Log().Warning("无法插入文件记录, %s", err)
 		return 0, err
 	}
+	deleteFileCache(file)
 	return file.ID, nil
 }
 
 // GetChildFile 查找目录下名为name的子文件
 func (folder *Folder) GetChildFile(name string) (*File, error) {
-	var file File
+
+	c := cache.Hget(fmt.Sprintf("%d_%s", folder.ID, name), "file")
+	var file *File
+	if ok := c.Get("cache", &file); ok {
+		if file.ID == 0 {
+			return file, gorm.ErrRecordNotFound
+		}
+		return file, nil
+	}
 	result := DB.Where("folder_id = ? AND name = ?", folder.ID, name).Find(&file)
 
 	if result.Error == nil {
 		file.Position = path.Join(folder.Position, folder.Name)
 	}
-	return &file, result.Error
+	if file == nil {
+		file = &File{}
+	}
+	c.Store("cache", &file)
+	c.Expire(60)
+	return file, result.Error
 }
 
 // GetChildFiles 查找目录下子文件
@@ -72,7 +96,7 @@ func (folder *Folder) GetChildFiles() ([]File, error) {
 // UID为0表示忽略用户，只根据文件ID检索
 func GetFilesByIDs(ids []uint, uid uint) ([]File, error) {
 	var files []File
-	var result *gorm.DB
+	var result *DBStruct
 	if uid == 0 {
 		result = DB.Where("id in (?)", ids).Find(&files)
 	} else {
@@ -170,7 +194,16 @@ func RemoveFilesWithSoftLinks(files []File) ([]File, error) {
 
 // DeleteFileByIDs 根据给定ID批量删除文件记录
 func DeleteFileByIDs(ids []uint) error {
-	result := DB.Where("id in (?)", ids).Unscoped().Delete(&File{})
+	var files []*File
+	if err := DB.Where("id in (?)", ids).Find(&files).Error; err != nil || len(files) == 0 {
+		return err
+	}
+	result := DB.Where("id in (?)", ids).Delete(&File{})
+	if result.Error == nil {
+		for _, f := range files {
+			deleteFileCache(f)
+		}
+	}
 	return result.Error
 }
 
@@ -183,12 +216,22 @@ func GetFilesByParentIDs(ids []uint, uid uint) ([]File, error) {
 
 // Rename 重命名文件
 func (file *File) Rename(new string) error {
-	return DB.Model(&file).Update("name", new).Error
+
+	if err := DB.Model(&file).Update("name", new).Error; err != nil {
+		return err
+	}
+	deleteFileCache(file)
+	return nil
 }
 
 // UpdatePicInfo 更新文件的图像信息
 func (file *File) UpdatePicInfo(value string) error {
-	return DB.Model(&file).Set("gorm:association_autoupdate", false).Update("pic_info", value).Error
+
+	if err := DB.Model(&file).Set("gorm:association_autoupdate", false).Update("pic_info", value).Error; err != nil {
+		return err
+	}
+	deleteFileCache(file)
+	return nil
 }
 
 // UpdateSize 更新文件的大小信息
@@ -197,12 +240,25 @@ func (file *File) UpdateSize(value uint64) error {
 		uid:  file.Model.ID,
 		size: value,
 	}
+	key := fmt.Sprintf("%d_%s", file.FolderID, file.Name)
+	if c, ok := cache.Has(key, "file"); ok {
+		var file *File
+		if ok := c.Get("cache", &file); ok {
+			file.Size = value
+			c.Store("cache", file)
+		}
+	}
 	return nil
 }
 
 // UpdateSourceName 更新文件的源文件名
 func (file *File) UpdateSourceName(value string) error {
-	return DB.Model(&file).Set("gorm:association_autoupdate", false).Update("source_name", value).Error
+
+	if err := DB.Model(&file).Set("gorm:association_autoupdate", false).Update("source_name", value).Error; err != nil {
+		return err
+	}
+	deleteFileCache(file)
+	return nil
 }
 
 /*

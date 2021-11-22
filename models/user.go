@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime/debug"
-	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/cloudreve/Cloudreve/v3/pkg/util"
 	"github.com/jinzhu/gorm"
@@ -58,16 +58,21 @@ type UserOption struct {
 
 // Root 获取用户的根目录
 func (user *User) Root() (*Folder, error) {
-	var folder Folder
-	c := cache.Hget(strconv.Itoa(int(user.ID)), "Folder")
+
+	if v, ok := folderCache.Load(user.ID); ok {
+		if folder, ok := v.(*sync.Map).Load("0"); ok {
+			return folder.(*Folder), nil
+		}
+	}
+	/*c := cache.Hget(strconv.Itoa(int(user.ID)), "Folder")
 	if ok := c.Get("0", &folder); ok {
 		return &folder, nil
 	}
-	err := DB.Where("parent_id is NULL AND owner_id = ?", user.ID).First(&folder).Error
+	err  := DB.Where("parent_id is NULL AND owner_id = ?", user.ID).First(&folder).Error
 	if folder.OwnerID != 0 {
 		c.Set("0", folder)
-	}
-	return &folder, err
+	}*/
+	return nil, gorm.ErrRecordNotFound
 }
 
 // DeductionStorage 减少用户已用容量

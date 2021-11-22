@@ -7,6 +7,7 @@ require (
 	github.com/aliyun/aliyun-oss-go-sdk v2.0.5+incompatible
 	github.com/aws/aws-sdk-go v1.31.5
 	github.com/baiyubin/aliyun-sts-go-sdk v0.0.0-20180326062324-cfa1a18b161f // indirect
+	github.com/dlclark/regexp2 v1.4.0
 	github.com/duo-labs/webauthn v0.0.0-20191119193225-4bf9a0f776d4
 	github.com/fatih/color v1.7.0
 	github.com/gin-contrib/cors v1.3.0
@@ -22,10 +23,14 @@ require (
 	github.com/gorilla/websocket v1.4.1
 	github.com/hashicorp/go-version v1.2.0
 	github.com/jinzhu/gorm v1.9.11
+	github.com/jinzhu/now v1.1.2 // indirect
+	github.com/json-iterator/go v1.1.7
 	github.com/juju/ratelimit v1.0.1
-	github.com/luyu6056/cache v1.1.9
+	github.com/luyu6056/cache v1.1.10
 	github.com/luyu6056/mysql v1.0.7
+	github.com/luyu6056/reflect2 v1.0.2
 	github.com/mattn/go-colorable v0.1.4 // indirect
+	github.com/modern-go/reflect2 v0.0.0-20180701023420-4b7aa43c6742
 	github.com/mojocn/base64Captcha v0.0.0-20190801020520-752b1cd608b2
 	github.com/pkg/errors v0.9.1
 	github.com/pquerna/otp v1.2.0
@@ -46,5 +51,6 @@ require (
 	gopkg.in/go-playground/validator.v9 v9.29.1
 	gopkg.in/ini.v1 v1.51.0 // indirect
 	gopkg.in/mail.v2 v2.3.1 // indirect
-	gorm.io/gorm v1.22.3
 )
+
+replace github.com/gin-gonic/gin => ./gin

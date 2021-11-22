@@ -17,6 +17,8 @@ func needMigration() bool {
 
 //执行数据迁移
 func migration() {
+	DB.AutoMigrate(&User{}, &Setting{}, &Group{}, &Policy{}, &Folder{}, &File{}, &Share{},
+		&Task{}, &Download{}, &Tag{}, &Webdav{}, &Node{})
 	// 确认是否需要执行迁移
 	if !needMigration() {
 		util.Log().Info("数据库版本匹配，跳过数据库迁移")
@@ -33,11 +35,8 @@ func migration() {
 
 	// 自动迁移模式
 	if conf.DatabaseConfig.Type == "mysql" {
-		DB = DB.Set("gorm:table_options", "ENGINE=InnoDB")
+		DB.gormDb = DB.gormDb.Set("gorm:table_options", "ENGINE=InnoDB")
 	}
-
-	DB.AutoMigrate(&User{}, &Setting{}, &Group{}, &Policy{}, &Folder{}, &File{}, &Share{},
-		&Task{}, &Download{}, &Tag{}, &Webdav{}, &Node{})
 
 	// 创建初始存储策略
 	addDefaultPolicy()
@@ -63,6 +62,7 @@ func addDefaultPolicy() {
 	// 未找到初始存储策略时，则创建
 	if gorm.IsRecordNotFoundError(err) {
 		defaultPolicy := Policy{
+			Model:              gorm.Model{ID: 1},
 			Name:               "默认存储策略",
 			Type:               "local",
 			MaxSize:            0,
@@ -184,7 +184,7 @@ Neue',Helvetica,Arial,sans-serif; box-sizing: border-box; font-size: 14px; verti
 	}
 
 	for _, value := range defaultSettings {
-		DB.Where(Setting{Name: value.Name}).Create(&value)
+		DB.gormDb.Where(Setting{Name: value.Name}).Create(&value)
 	}
 }
 
@@ -193,6 +193,7 @@ func addDefaultGroups() {
 	// 未找到初始管理组时，则创建
 	if gorm.IsRecordNotFoundError(err) {
 		defaultAdminGroup := Group{
+			Model:         gorm.Model{ID: 1},
 			Name:          "管理员",
 			PolicyList:    []uint{1},
 			MaxStorage:    1 * 1024 * 1024 * 1024,
@@ -212,9 +213,11 @@ func addDefaultGroups() {
 
 	err = nil
 	_, err = GetGroupByID(2)
+
 	// 未找到初始注册会员时，则创建
 	if gorm.IsRecordNotFoundError(err) {
 		defaultAdminGroup := Group{
+			Model:         gorm.Model{ID: 2},
 			Name:          "注册会员",
 			PolicyList:    []uint{1},
 			MaxStorage:    1 * 1024 * 1024 * 1024,
@@ -234,6 +237,7 @@ func addDefaultGroups() {
 	// 未找到初始游客用户组时，则创建
 	if gorm.IsRecordNotFoundError(err) {
 		defaultAdminGroup := Group{
+			Model:      gorm.Model{ID: 3},
 			Name:       "游客",
 			PolicyList: []uint{},
 			Policies:   "[]",
@@ -258,6 +262,7 @@ func addDefaultUser() {
 		defaultUser.Nick = "admin"
 		defaultUser.Status = Active
 		defaultUser.GroupID = 1
+		defaultUser.Model.ID = 1
 		err := defaultUser.SetPassword(password)
 		if err != nil {
 			util.Log().Panic("无法创建密码, %s", err)
@@ -277,6 +282,7 @@ func addDefaultNode() {
 
 	if gorm.IsRecordNotFoundError(err) {
 		defaultAdminGroup := Node{
+			Model:  gorm.Model{ID: 1},
 			Name:   "主机（本机）",
 			Status: NodeActive,
 			Type:   MasterNodeType,

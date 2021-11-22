@@ -162,10 +162,19 @@ func (fs *FileSystem) DispatchHandler() error {
 		}
 		return nil
 	case "remote":
-		fs.Handler = remote.Driver{
-			Policy:       currentPolicy,
-			Client:       request.NewClient(),
-			AuthInstance: auth.HMACAuth{[]byte(currentPolicy.SecretKey)},
+		if conf.SSLConfig.CertPath != "" {
+			fs.Handler = remote.Driver{
+				Policy:       currentPolicy,
+				Client:       request.NewHttp2Client(currentPolicy.Server),
+				AuthInstance: auth.HMACAuth{[]byte(currentPolicy.SecretKey)},
+			}
+		} else {
+			fs.Handler = remote.Driver{
+				Policy: currentPolicy,
+				//Client:       request.NewClient(),
+				Client:       request.NewH2cClient(currentPolicy.Server),
+				AuthInstance: auth.HMACAuth{[]byte(currentPolicy.SecretKey)},
+			}
 		}
 		return nil
 	case "qiniu":

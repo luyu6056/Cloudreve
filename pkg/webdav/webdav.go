@@ -281,20 +281,20 @@ func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request, fs *files
 	defer release()
 
 	ctx := r.Context()
-
 	// 尝试作为文件删除
 	if ok, file := fs.IsFileExist(reqPath); ok {
 		if err := fs.Delete(ctx, []uint{}, []uint{file.ID}, false); err != nil {
 			return http.StatusMethodNotAllowed, err
 		}
+
 		return http.StatusNoContent, nil
 	}
-
 	// 尝试作为目录删除
 	if ok, folder := fs.IsPathExist(reqPath); ok {
 		if err := fs.Delete(ctx, []uint{folder.ID}, []uint{}, false); err != nil {
 			return http.StatusMethodNotAllowed, err
 		}
+
 		return http.StatusNoContent, nil
 	}
 
@@ -416,6 +416,7 @@ func (h *Handler) handleMkcol(w http.ResponseWriter, r *http.Request, fs *filesy
 			ctx = context.WithValue(ctx, fsctx.IgnoreDirectoryConflictCtx, true)
 		}
 	}
+
 	if _, err := fs.CreateDirectory(ctx, reqPath); err != nil {
 		return http.StatusConflict, err
 	}
@@ -425,7 +426,6 @@ func (h *Handler) handleMkcol(w http.ResponseWriter, r *http.Request, fs *filesy
 // OK
 func (h *Handler) handleCopyMove(w http.ResponseWriter, r *http.Request, fs *filesystem.FileSystem) (status int, err error) {
 	defer fs.Recycle()
-
 	hdr := r.Header.Get("Destination")
 	if hdr == "" {
 		return http.StatusBadRequest, errInvalidDestination
@@ -444,6 +444,7 @@ func (h *Handler) handleCopyMove(w http.ResponseWriter, r *http.Request, fs *fil
 	}
 
 	dst, status, err := h.stripPrefix(u.Path, fs.User.ID)
+
 	if err != nil {
 		return status, err
 	}
@@ -504,6 +505,7 @@ func (h *Handler) handleCopyMove(w http.ResponseWriter, r *http.Request, fs *fil
 			return http.StatusBadRequest, errInvalidDepth
 		}
 	}
+
 	return moveFiles(ctx, fs, target, dst, r.Header.Get("Overwrite") == "T")
 }
 

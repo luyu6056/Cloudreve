@@ -90,11 +90,29 @@ type cors struct {
 
 var cfg *ini.File
 
-const defaultConf = `[System]
+/*const defaultConf = `[System]
 Mode = master
 Listen = :5212
 SessionSecret = {SessionSecret}
 HashIDSalt = {HashIDSalt}
+`*/
+const defaultConf = `[System]
+Mode = master
+Listen = :5212
+SessionSecret = QR0npnYfWaW7H874ogk2QsbjeBQzUyLygdVWTy3NXFXa9LxypgGrySxe1Y99I6nK
+HashIDSalt = 2ziJAU2mi5Nr1ulxC9Rco4trRs216fC4vnzD4XaxDaXx8ZbaJ0AwTaaQKsnvZskY
+Debug = true
+
+[Database]
+Type = mysql
+Port = 3306
+User = cloudreve
+Password = 123456
+Host = 127.0.0.1
+Name = cloudreve
+TablePrefix = cd_
+Charset = utf8
+
 `
 
 // Init 初始化配置文件

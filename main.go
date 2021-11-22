@@ -29,9 +29,7 @@ func init() {
 
 func main() {
 	go http.ListenAndServe("0.0.0.0:6060", nil)
-	cache.Hdel_all("User")
-	cache.Hdel_all("Folder")
-	cache.Hdel_all("Webdav")
+	cache.NoPersistence = true
 
 	if isEject {
 		// 开始导出内置静态资源文件

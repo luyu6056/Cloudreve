@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 
 	model "github.com/cloudreve/Cloudreve/v3/models"
 	"github.com/cloudreve/Cloudreve/v3/pkg/auth"
@@ -76,15 +75,8 @@ func (handler Driver) Get(ctx context.Context, path string) (response.RSCloser, 
 	// 打开文件
 	file, err := os.Open(util.RelativePath(path))
 	if err != nil {
-		if strings.Contains(err.Error(), "cannot find") {
-			file, err = os.Create(util.RelativePath(path))
-		}
-		if err != nil {
-
-			util.Log().Debug("无法打开文件：%s", err)
-			return nil, err
-		}
-
+		util.Log().Debug("无法打开文件：%s", err)
+		return nil, err
 	}
 
 	// 开启一个协程，用于请求结束后关闭reader

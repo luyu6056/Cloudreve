@@ -7,7 +7,6 @@ import (
 	"github.com/cloudreve/Cloudreve/v3/pkg/auth"
 	"github.com/cloudreve/Cloudreve/v3/pkg/cluster"
 	"github.com/cloudreve/Cloudreve/v3/pkg/conf"
-	"github.com/cloudreve/Cloudreve/v3/pkg/filesystem"
 	"github.com/cloudreve/Cloudreve/v3/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v3/pkg/util"
 	"github.com/cloudreve/Cloudreve/v3/routers/controllers"
@@ -23,7 +22,6 @@ func InitRouter() *gin.Engine {
 	}
 	if conf.SystemConfig.Mode == "master" {
 		util.Log().Info("当前运行模式：Master")
-		filesystem.Check()
 		return InitMasterRouter()
 	}
 	util.Log().Info("当前运行模式：Slave")

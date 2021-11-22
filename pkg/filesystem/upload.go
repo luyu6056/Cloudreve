@@ -41,7 +41,7 @@ func (fs *FileSystem) Upload(ctx context.Context, file FileHeader) (err error) {
 	ctx = context.WithValue(ctx, fsctx.SavePathCtx, savePath)
 	// 处理客户端未完成上传时，关闭连接
 	go fs.CancelUpload(ctx, savePath, file)
-	slaveIsNew := fs.User.Policy.Type == "remote" && fs.IsNew && file.GetSize() == 0
+	slaveIsNew := (fs.User.Policy.Type == "remote" || fs.User.Policy.Type == "local") && fs.IsNew && file.GetSize() == 0
 	if !slaveIsNew { //针对RaiDrive优化
 		// 保存文件
 		err = fs.Handler.Put(ctx, file, savePath, file.GetSize())
