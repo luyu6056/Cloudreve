@@ -249,7 +249,12 @@ func (this *Mysql_Build) Where(conditions string, arg ...interface{}) *Mysql_Bui
 		}
 		return this
 	}*/
-	this.sql.where.WriteString(whereDefault) // where
+	if this.sql.where.Len() == 0 {
+		this.sql.where.WriteString(whereDefault) // where
+	} else {
+		this.sql.where.WriteString(" and (")
+	}
+
 	if this.prepare {
 		this.sql.where.WriteString(conditions)
 		for i := 0; i < len(arg); i++ {

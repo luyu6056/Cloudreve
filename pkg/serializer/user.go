@@ -3,11 +3,10 @@ package serializer
 import (
 	"fmt"
 
-	"time"
-
 	model "github.com/cloudreve/Cloudreve/v3/models"
 	"github.com/cloudreve/Cloudreve/v3/pkg/hashid"
 	"github.com/duo-labs/webauthn/webauthn"
+	"time"
 )
 
 // CheckLogin 检查登录

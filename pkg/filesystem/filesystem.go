@@ -171,8 +171,8 @@ func (fs *FileSystem) DispatchHandler() error {
 		} else {
 			fs.Handler = remote.Driver{
 				Policy: currentPolicy,
-				//Client:       request.NewClient(),
-				Client:       request.NewH2cClient(currentPolicy.Server),
+				Client: request.NewClient(),
+				//Client:       request.NewH2cClient(currentPolicy.Server),
 				AuthInstance: auth.HMACAuth{[]byte(currentPolicy.SecretKey)},
 			}
 		}

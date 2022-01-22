@@ -6,7 +6,7 @@ import (
 )
 
 var rows_pool = sync.Pool{New: func() interface{} {
-	row := &MysqlRows{Buffer: new(MsgBuffer), Buffer2: new(MsgBuffer), field_m: make(map[string]map[string]*Field_struct)}
+	row := &MysqlRows{Buffer: new(MsgBuffer), Buffer2: new(MsgBuffer)}
 
 	return row
 }}
@@ -14,7 +14,8 @@ var rows_pool = sync.Pool{New: func() interface{} {
 type Field_struct struct {
 	Offset     uintptr
 	ColumnName string
-	Field_t    reflect.Type
+
+	Field_t reflect.Type
 }
 type MysqlRows struct {
 	Buffer, Buffer2 *MsgBuffer
@@ -23,7 +24,6 @@ type MysqlRows struct {
 	buffer          []byte
 	//msg_buffer_no *int
 	field      []byte
-	field_m    map[string]map[string]*Field_struct
 	fields     []MysqlColumn
 	result_len int
 	IsBinary   bool
@@ -44,13 +44,8 @@ func (row *MysqlRows) Columns(mysql *Mysql_Conn) (columns []MysqlColumn, err err
 	columns = row.fields[:row.field_len]
 	var index uint32
 	var msglen, pos, field_index int
-
-	for msglen, err = mysql.readOneMsg(); err == nil; msglen, err = mysql.readOneMsg() {
-		data := mysql.readBuffer.Next(msglen)
-
-		if msglen == 5 && data[0] == 0xfe { //EOF
-			break
-		}
+	var data []byte
+	for data, err = mysql.readOneMsg(); err == nil && !(len(data) == 5 && data[0] == 0xfe); data, err = mysql.readOneMsg() {
 		pos = 0
 		msglen, err = ReadLength_Coded_Slice(data, &pos)
 		if err != nil {
@@ -109,14 +104,10 @@ func (row *MysqlRows) Columns(mysql *Mysql_Conn) (columns []MysqlColumn, err err
 	}
 	row.Buffer.Reset()
 	row.msg_len = row.msg_len[:0]
-	for msglen, err := mysql.readOneMsg(); err == nil; msglen, err = mysql.readOneMsg() {
-		data := mysql.readBuffer.Next(msglen)
-		if msglen == 5 && data[0] == 0xfe { //EOF
-			return columns, nil
-		}
+	for data, err = mysql.readOneMsg(); err == nil && !(len(data) == 5 && data[0] == 0xfe); data, err = mysql.readOneMsg() {
 		row.Buffer.Write(data)
 		row.result_len++
-		row.msg_len = append(row.msg_len, msglen)
+		row.msg_len = append(row.msg_len, len(data))
 	}
 
 	return columns, err

@@ -126,18 +126,37 @@ func (conn *Mysql_Conn) Prepare(sql []byte) (*Database_mysql_stmt, error) {
 		return nil, err
 	}
 
-	msglen, err = conn.readOneMsg()
+	buffer, err := conn.readOneMsg()
 	if err != nil {
 		return nil, err
 	}
-	buffer := conn.readBuffer.Next(msglen)
 	switch buffer[0] {
 	case 0: //ok报文
 		stmt.id = binary.LittleEndian.Uint32(buffer[1:5])
-		//columnCount := binary.LittleEndian.Uint16(buffer[5:7])
+		columnCount := binary.LittleEndian.Uint16(buffer[5:7])
 		stmt.numInput = int(binary.LittleEndian.Uint16(buffer[7:9]))
-
-		conn.readBuffer.Reset()
+		if stmt.numInput > 0 {
+			for {
+				buffer, err = conn.readOneMsg()
+				if err != nil {
+					return nil, err
+				}
+				if len(buffer) == 5 && buffer[0] == 0xfe {
+					break
+				}
+			}
+		}
+		if columnCount > 0 {
+			for {
+				buffer, err = conn.readOneMsg()
+				if err != nil {
+					return nil, err
+				}
+				if len(buffer) == 5 && buffer[0] == 0xfe {
+					break
+				}
+			}
+		}
 
 	case 255: //err报文
 
@@ -203,9 +222,6 @@ func (stmt *Database_mysql_stmt) Query(args []interface{}, row *MysqlRows) (colu
 		if err != nil {
 
 			return nil, err
-		}
-		if stmt.conn.readBuffer.Len() > 0 {
-			panic("长度错误")
 		}
 		_, _, row.field_len, errmsg, err = stmt.conn.readmsg()
 
@@ -358,7 +374,17 @@ func (stmt *Database_mysql_stmt) Execute(args []interface{}) error {
 				for r.Kind() == reflect.Ptr {
 					r = r.Elem()
 				}
-
+				if r.Kind() == reflect.Struct || r.Kind() == reflect.Slice || r.Kind() == reflect.Map {
+					paramTypes[i+i] = byte(fieldTypeString)
+					paramTypes[i+i+1] = 0x00
+					v := JsonMarshal(arg)
+					if len(v) < max_packet_size/(stmt.numInput+1) {
+						Writelenmsg(argbuf, v)
+						continue
+					} else {
+						return errors.New("输入的[]byte数据超过设计数值，请联系作者完善")
+					}
+				}
 				return fmt.Errorf("cannot convert type: %T", arg)
 			}
 		}

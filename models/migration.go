@@ -1,12 +1,17 @@
 package model
 
 import (
+	"context"
+	"github.com/cloudreve/Cloudreve/v3/models/scripts/invoker"
 	"github.com/cloudreve/Cloudreve/v3/pkg/cache"
 	"github.com/cloudreve/Cloudreve/v3/pkg/conf"
 	"github.com/cloudreve/Cloudreve/v3/pkg/util"
 	"github.com/fatih/color"
 	"github.com/gofrs/uuid"
+	"github.com/hashicorp/go-version"
 	"github.com/jinzhu/gorm"
+	"sort"
+	"strings"
 )
 
 // 是否需要迁移
@@ -181,6 +186,7 @@ Neue',Helvetica,Arial,sans-serif; box-sizing: border-box; font-size: 14px; verti
 		{Name: "pwa_display", Value: "standalone", Type: "pwa"},
 		{Name: "pwa_theme_color", Value: "#000000", Type: "pwa"},
 		{Name: "pwa_background_color", Value: "#ffffff", Type: "pwa"},
+		{Name: "office_preview_service", Value: "https://view.officeapps.live.com/op/view.aspx?src={$src}", Type: "preview"},
 	}
 
 	for _, value := range defaultSettings {
@@ -294,5 +300,19 @@ func addDefaultNode() {
 		if err := DB.Create(&defaultAdminGroup).Error; err != nil {
 			util.Log().Panic("无法创建初始节点记录, %s", err)
 		}
+	}
+}
+
+func execUpgradeScripts() {
+	s := invoker.ListPrefix("UpgradeTo")
+	versions := make([]*version.Version, len(s))
+	for i, raw := range s {
+		v, _ := version.NewVersion(strings.TrimPrefix(raw, "UpgradeTo"))
+		versions[i] = v
+	}
+	sort.Sort(version.Collection(versions))
+
+	for i := 0; i < len(versions); i++ {
+		invoker.RunDBScript("UpgradeTo"+versions[i].String(), context.Background())
 	}
 }

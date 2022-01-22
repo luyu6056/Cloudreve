@@ -128,6 +128,7 @@ func (c *HTTPClient) Request(method, target string, body io.Reader, opts ...Opti
 		req *http.Request
 		err error
 	)
+	fmt.Println(target)
 	if options.ctx != nil {
 		req, err = http.NewRequestWithContext(options.ctx, method, target, body)
 	} else {

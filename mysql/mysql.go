@@ -2453,7 +2453,7 @@ func GetGormColumnName(field reflect.StructField) string {
 
 //处理一个参数，in(?)，传入[]string这种
 func checkStmtInSql(sql []byte, prepare_arg []interface{}) ([]byte, []interface{}) {
-	str := Bytes2str(sql)
+	str := Bytes2str(bytes.ToLower(sql))
 	for i := len(prepare_arg); i > 0; i-- {
 		r := reflect.ValueOf(prepare_arg[i-1])
 
@@ -2469,18 +2469,15 @@ func checkStmtInSql(sql []byte, prepare_arg []interface{}) ([]byte, []interface{
 					} else {
 						args = []string{"NULL"}
 					}
-
 					str = str[:last+4] + strings.Join(args, ",") + str[last+5:]
 					prepare_arg = append(prepare_arg[:i-1], prepare_arg[i:]...)
 				}
 				return Str2bytes(str), prepare_arg
 			default:
-				fmt.Println(str)
 				panic("checkStmtInSql无法处理" + r.Type().Elem().Kind().String())
 			}
 		}
 
 	}
-
 	return sql, prepare_arg
 }

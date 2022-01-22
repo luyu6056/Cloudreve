@@ -2,6 +2,8 @@ module github.com/cloudreve/Cloudreve/v3
 
 go 1.13
 
+replace github.com/gin-gonic/gin => ./gin
+
 require (
 	github.com/DATA-DOG/go-sqlmock v1.3.3
 	github.com/aliyun/aliyun-oss-go-sdk v2.0.5+incompatible
@@ -23,14 +25,13 @@ require (
 	github.com/gorilla/websocket v1.4.1
 	github.com/hashicorp/go-version v1.2.0
 	github.com/jinzhu/gorm v1.9.11
-	github.com/jinzhu/now v1.1.2 // indirect
 	github.com/json-iterator/go v1.1.7
 	github.com/juju/ratelimit v1.0.1
-	github.com/luyu6056/cache v1.1.10
+	github.com/luyu6056/cache v1.1.11
 	github.com/luyu6056/mysql v1.0.7
 	github.com/luyu6056/reflect2 v1.0.2
 	github.com/mattn/go-colorable v0.1.4 // indirect
-	github.com/modern-go/reflect2 v0.0.0-20180701023420-4b7aa43c6742
+	github.com/modern-go/reflect2 v1.0.1
 	github.com/mojocn/base64Captcha v0.0.0-20190801020520-752b1cd608b2
 	github.com/pkg/errors v0.9.1
 	github.com/pquerna/otp v1.2.0
@@ -40,7 +41,7 @@ require (
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/smartystreets/goconvey v1.6.4 // indirect
 	github.com/speps/go-hashids v2.0.0+incompatible
-	github.com/stretchr/testify v1.6.1
+	github.com/stretchr/testify v1.5.1
 	github.com/tencentcloud/tencentcloud-sdk-go v3.0.125+incompatible
 	github.com/tencentyun/cos-go-sdk-v5 v0.0.0-20200120023323-87ff3bc489ac
 	github.com/upyun/go-sdk v2.1.0+incompatible
@@ -52,5 +53,3 @@ require (
 	gopkg.in/ini.v1 v1.51.0 // indirect
 	gopkg.in/mail.v2 v2.3.1 // indirect
 )
-
-replace github.com/gin-gonic/gin => ./gin

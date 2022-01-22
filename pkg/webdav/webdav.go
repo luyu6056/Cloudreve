@@ -245,6 +245,7 @@ func (h *Handler) handleGetHeadPost(w http.ResponseWriter, r *http.Request, fs *
 		if err == filesystem.ErrObjectNotExist {
 			return http.StatusNotFound, err
 		}
+
 		return http.StatusInternalServerError, err
 	}
 

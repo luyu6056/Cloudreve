@@ -49,7 +49,7 @@ func GetSettingByNames(names ...string) map[string]string {
 	res, miss := cache.GetSettings(names, "setting_")
 
 	if len(miss) > 0 {
-		DB.Where("name in (?)", miss).Find(&queryRes)
+		DB.Where("name IN (?)", miss).Find(&queryRes)
 		for _, setting := range queryRes {
 			res[setting.Name] = setting.Value
 		}

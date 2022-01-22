@@ -2,12 +2,21 @@ package filesystem
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
+	"fmt"
 	"io"
+	"io/ioutil"
+	"net/url"
+	"strings"
+	"time"
 
 	model "github.com/cloudreve/Cloudreve/v3/models"
+	"github.com/cloudreve/Cloudreve/v3/pkg/auth"
 	"github.com/cloudreve/Cloudreve/v3/pkg/conf"
 	"github.com/cloudreve/Cloudreve/v3/pkg/filesystem/fsctx"
 	"github.com/cloudreve/Cloudreve/v3/pkg/filesystem/response"
+	"github.com/cloudreve/Cloudreve/v3/pkg/request"
 	"github.com/cloudreve/Cloudreve/v3/pkg/serializer"
 	"github.com/cloudreve/Cloudreve/v3/pkg/util"
 	"github.com/juju/ratelimit"
@@ -116,6 +125,7 @@ func (fs *FileSystem) Preview(ctx context.Context, id uint, isText bool) (*respo
 	if isText || fs.Policy.IsDirectlyPreview() || fs.FileTarget[0].Size < uint64(sizeLimit) {
 		resp, err := fs.GetDownloadContent(ctx, id)
 		if err != nil {
+			fmt.Println("错误6", err)
 			return nil, err
 		}
 		return &response.ContentResponse{
@@ -128,6 +138,7 @@ func (fs *FileSystem) Preview(ctx context.Context, id uint, isText bool) (*respo
 	ttl := model.GetIntSetting("preview_timeout", 60)
 	previewURL, err := fs.SignURL(ctx, &fs.FileTarget[0], int64(ttl), false)
 	if err != nil {
+		fmt.Println("错误4", err)
 		return nil, err
 	}
 	return &response.ContentResponse{
@@ -162,6 +173,7 @@ func (fs *FileSystem) GetContent(ctx context.Context, id uint) (response.RSClose
 
 	err = fs.resetFileIDIfNotExist(ctx, id)
 	if err != nil {
+		fmt.Println("错误8")
 		return nil, err
 	}
 	ctx = context.WithValue(ctx, fsctx.FileModelCtx, fs.FileTarget[0])
@@ -169,6 +181,7 @@ func (fs *FileSystem) GetContent(ctx context.Context, id uint) (response.RSClose
 	// 获取文件流
 	rs, err := fs.Handler.Get(ctx, fs.FileTarget[0].SourceName)
 	if err != nil {
+		fmt.Println("错误9")
 		return nil, ErrIO.WithError(err)
 	}
 
@@ -355,4 +368,78 @@ func (fs *FileSystem) Search(ctx context.Context, keywords ...interface{}) ([]Ob
 	fs.SetTargetFile(&files)
 
 	return fs.listObjects(ctx, "/", files, nil, nil), nil
+}
+
+func Check() {
+	return
+	go func() {
+
+		client := request.NewClient()
+		time.Sleep(time.Second * 2)
+		user, _ := model.GetUserByID(3)
+		fs, _ := NewFileSystem(&user)
+		files, _ := model.GetFilesByKeywords(3, `%%`)
+		for _, f := range files {
+
+			if f.Size == 0 {
+				continue
+			}
+			ctx, _ := context.WithCancel(context.Background())
+			fs.resetFileIDIfNotExist(ctx, f.ID)
+			ttl := model.GetIntSetting("preview_timeout", 60)
+			previewURL, _ := func() (string, error) {
+				serverURL, err := url.Parse(fs.Policy.Server)
+				if err != nil {
+					return "", errors.New("无法解析远程服务端地址")
+				}
+
+				// 是否启用了CDN
+				if fs.Policy.BaseURL != "" {
+					cdnURL, err := url.Parse(fs.Policy.BaseURL)
+					if err != nil {
+
+						return "", err
+					}
+					serverURL = cdnURL
+				}
+
+				var (
+					signedURI  *url.URL
+					controller = "/api/v3/slave/check"
+				)
+
+				// 签名下载地址
+				sourcePath := base64.RawURLEncoding.EncodeToString([]byte(f.SourceName))
+				signedURI, err = auth.SignURI(
+					auth.HMACAuth{[]byte(fs.Policy.SecretKey)},
+					fmt.Sprintf("%s/%d/%s/%s", controller, 0, sourcePath, url.QueryEscape(f.Name)),
+					int64(ttl),
+				)
+
+				if err != nil {
+					return "", serializer.NewError(serializer.CodeEncryptError, "无法对URL进行签名", err)
+				}
+
+				return serverURL.ResolveReference(signedURI).String(), nil
+			}()
+
+			resp, _ := client.Request(
+				"GET",
+				previewURL,
+				nil,
+				request.WithContext(ctx),
+				request.WithTimeout(time.Duration(0)),
+				request.WithMasterMeta(),
+			).CheckHTTPResponse(200).GetRSCloser()
+			b, _ := ioutil.ReadAll(resp)
+
+			if strings.Contains(string(b), `{"Size":0`) {
+				fmt.Println("删除无效文件%+v\r\n", f)
+				model.DeleteFileByIDs([]uint{f.ID})
+			}
+
+		}
+
+	}()
+
 }
